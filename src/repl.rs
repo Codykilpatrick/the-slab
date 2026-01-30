@@ -375,14 +375,14 @@ impl Repl {
                                 stdout.flush().ok();
                             } else if !completions.is_empty() {
                                 // Multiple matches - show completion menu
-                                // Temporarily disable raw mode for proper newlines
+                                // Disable raw mode for proper menu display
                                 crossterm::terminal::disable_raw_mode().ok();
                                 println!();
                                 self.show_completion_menu(&completions);
                                 self.print_prompt();
                                 print!("{}", input);
                                 stdout.flush().ok();
-                                // Re-enable raw mode for input handling
+                                // Re-enable raw mode
                                 crossterm::terminal::enable_raw_mode().ok();
                             }
                         }
