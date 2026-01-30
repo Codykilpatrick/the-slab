@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="the-slab.png" alt="The Slab" width="400">
+  <img src="slab-logo.png" alt="The Slab" width="400">
 </p>
 
 <h1 align="center">The Slab</h1>
@@ -13,20 +13,41 @@
 
 ## Table of Contents
 
+- [Table of Contents](#table-of-contents)
 - [Features](#features)
 - [Installation](#installation)
+  - [From Source](#from-source)
+  - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [Usage](#usage)
+  - [Commands](#commands)
+  - [Global Options](#global-options)
+  - [REPL Commands](#repl-commands)
+  - [Keyboard Shortcuts](#keyboard-shortcuts)
+  - [Tab Completion](#tab-completion)
 - [Configuration](#configuration)
+  - [Example Config](#example-config)
+  - [Config Options](#config-options)
   - [Theming](#theming)
   - [Box Styles](#box-styles)
 - [File Operations](#file-operations)
+  - [Creating/Editing Files](#creatingediting-files)
+  - [Deleting Files](#deleting-files)
+  - [Auto-Apply Mode](#auto-apply-mode)
+  - [Customizing the System Prompt](#customizing-the-system-prompt)
 - [Templates](#templates)
+  - [Built-in Variables](#built-in-variables)
 - [Rules](#rules)
 - [Testing](#testing)
+  - [Assertion Types](#assertion-types)
 - [Shell Completions](#shell-completions)
+  - [Basic Completions](#basic-completions)
+  - [Enhanced Completions](#enhanced-completions)
 - [Project Structure](#project-structure)
 - [Troubleshooting](#troubleshooting)
+  - [Ollama not running](#ollama-not-running)
+  - [No models available](#no-models-available)
+  - [Model not found](#model-not-found)
 - [License](#license)
 
 ## Features
