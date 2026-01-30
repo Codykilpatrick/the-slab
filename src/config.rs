@@ -63,6 +63,18 @@ pub struct UiConfig {
     /// Auto-apply file operations without prompting
     #[serde(default)]
     pub auto_apply_file_ops: bool,
+
+    /// Show inline completion preview (fish-style ghost text)
+    #[serde(default = "default_true")]
+    pub inline_completion_preview: bool,
+
+    /// Enable fuzzy matching for completions
+    #[serde(default = "default_true")]
+    pub fuzzy_completion: bool,
+
+    /// Maximum number of items to show in completion menu
+    #[serde(default = "default_max_completions")]
+    pub max_completion_items: usize,
 }
 
 impl Default for UiConfig {
@@ -71,8 +83,19 @@ impl Default for UiConfig {
             theme: default_theme(),
             streaming: default_streaming(),
             auto_apply_file_ops: false,
+            inline_completion_preview: true,
+            fuzzy_completion: true,
+            max_completion_items: 10,
         }
     }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_max_completions() -> usize {
+    10
 }
 
 fn default_ollama_host() -> String {

@@ -86,6 +86,7 @@ slab chat --continue         # Resume last session
 slab chat --session myproj   # Use named session
 slab run "your prompt"       # Run single prompt
 slab models                  # List available models
+slab sessions                # List saved sessions
 slab test                    # Run prompt tests
 slab init                    # Initialize .slab/ directory
 slab config --show           # Show configuration
@@ -127,7 +128,19 @@ slab completions bash        # Generate shell completions
 | `Ctrl+D` | Exit |
 | `Ctrl+L` | Clear screen |
 | `Up/Down` | Navigate command history |
-| `Tab` | Autocomplete commands |
+| `Tab` | Show completion menu |
+| `Right Arrow` | Accept inline preview |
+
+### Tab Completion
+
+The REPL features intelligent tab completion:
+
+- **Command completion** - Complete `/` commands with descriptions
+- **File path completion** - Complete paths for `/add` and context commands
+- **Model completion** - Complete model names for `/model`
+- **Fuzzy matching** - Typo-tolerant matching (e.g., `/hlp` matches `/help`)
+- **Fish-style preview** - Ghost text shows the top suggestion as you type
+- **Interactive menu** - Arrow keys to navigate, Enter to select
 
 ## Configuration
 
@@ -151,6 +164,9 @@ system_prompt = "You are a helpful coding assistant."
 
 [ui]
 streaming = true
+inline_completion_preview = true
+fuzzy_completion = true
+max_completion_items = 10
 ```
 
 ### Config Options
@@ -162,6 +178,9 @@ streaming = true
 | `context_limit` | Max context tokens | `32768` |
 | `ui.streaming` | Enable streaming | `true` |
 | `ui.auto_apply_file_ops` | Auto-apply file operations | `false` |
+| `ui.inline_completion_preview` | Show fish-style ghost text | `true` |
+| `ui.fuzzy_completion` | Enable fuzzy matching | `true` |
+| `ui.max_completion_items` | Max items in completion menu | `10` |
 
 ## File Operations
 
@@ -328,18 +347,42 @@ slab test --model qwen2.5:14b    # Test specific model
 
 ## Shell Completions
 
-Generate completions for your shell:
+### Basic Completions
+
+Generate basic completions for your shell:
 
 ```bash
 # Bash
+mkdir -p ~/.local/share/bash-completion/completions
 slab completions bash > ~/.local/share/bash-completion/completions/slab
 
 # Zsh
+mkdir -p ~/.zfunc
 slab completions zsh > ~/.zfunc/_slab
 
 # Fish
+mkdir -p ~/.config/fish/completions
 slab completions fish > ~/.config/fish/completions/slab.fish
 ```
+
+### Enhanced Completions
+
+For dynamic model and session completion, use the enhanced scripts in `completions/`:
+
+```bash
+# Bash - source directly or add to ~/.bashrc
+source completions/slab.bash
+
+# Zsh - copy to fpath
+mkdir -p ~/.zsh/completions
+cp completions/_slab ~/.zsh/completions/
+# Add to ~/.zshrc: fpath=(~/.zsh/completions $fpath)
+
+# Fish
+cp completions/slab.fish ~/.config/fish/completions/
+```
+
+The enhanced completions dynamically query available models and saved sessions for accurate tab completion.
 
 ## Project Structure
 
@@ -350,6 +393,11 @@ slab completions fish > ~/.config/fish/completions/slab.fish
 ├── rules/           # Coding guidelines
 ├── tests/           # Prompt tests
 └── sessions/        # Saved sessions
+
+completions/         # Enhanced shell completion scripts
+├── slab.bash        # Bash completions
+├── _slab            # Zsh completions
+└── slab.fish        # Fish completions
 ```
 
 ## Troubleshooting

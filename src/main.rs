@@ -1,4 +1,5 @@
 mod cli;
+mod completion;
 mod config;
 mod context;
 mod error;
@@ -107,11 +108,15 @@ async fn run() -> Result<()> {
             }
         }
 
-        Commands::Models => {
+        Commands::Models { names_only } => {
             // Health check
             client.health_check().await?;
 
-            list_models(&client).await?;
+            list_models(&client, names_only).await?;
+        }
+
+        Commands::Sessions { names_only } => {
+            list_sessions(names_only)?;
         }
 
         Commands::Test { filter, model } => {
@@ -190,6 +195,21 @@ fn show_config(config: &Config) -> Result<()> {
         style("Auto-apply file ops:").dim(),
         config.ui.auto_apply_file_ops
     );
+    println!(
+        "  {} {}",
+        style("Inline completion:").dim(),
+        config.ui.inline_completion_preview
+    );
+    println!(
+        "  {} {}",
+        style("Fuzzy completion:").dim(),
+        config.ui.fuzzy_completion
+    );
+    println!(
+        "  {} {}",
+        style("Max completions:").dim(),
+        config.ui.max_completion_items
+    );
 
     if !config.models.is_empty() {
         println!();
@@ -253,6 +273,21 @@ fn set_config_value(key_value: &str) -> Result<()> {
                 .parse()
                 .map_err(|_| SlabError::ConfigError("Invalid boolean value".to_string()))?;
         }
+        "ui.inline_completion_preview" => {
+            config.ui.inline_completion_preview = value
+                .parse()
+                .map_err(|_| SlabError::ConfigError("Invalid boolean value".to_string()))?;
+        }
+        "ui.fuzzy_completion" => {
+            config.ui.fuzzy_completion = value
+                .parse()
+                .map_err(|_| SlabError::ConfigError("Invalid boolean value".to_string()))?;
+        }
+        "ui.max_completion_items" => {
+            config.ui.max_completion_items = value
+                .parse()
+                .map_err(|_| SlabError::ConfigError("Invalid number value".to_string()))?;
+        }
         _ => {
             return Err(SlabError::ConfigError(format!(
                 "Unknown config key: {}",
@@ -266,14 +301,24 @@ fn set_config_value(key_value: &str) -> Result<()> {
     Ok(())
 }
 
-async fn list_models(client: &OllamaClient) -> Result<()> {
+async fn list_models(client: &OllamaClient, names_only: bool) -> Result<()> {
     let models = client.list_models().await?;
 
     if models.is_empty() {
-        println!(
-            "{}",
-            style("No models available. Pull a model with: ollama pull <model>").yellow()
-        );
+        if !names_only {
+            println!(
+                "{}",
+                style("No models available. Pull a model with: ollama pull <model>").yellow()
+            );
+        }
+        return Ok(());
+    }
+
+    // For shell completion scripts - just output names
+    if names_only {
+        for model in &models {
+            println!("{}", model.name);
+        }
         return Ok(());
     }
 
@@ -297,6 +342,61 @@ async fn list_models(client: &OllamaClient) -> Result<()> {
         }
 
         println!(" {}", style(size_str).dim());
+    }
+
+    println!();
+    Ok(())
+}
+
+fn list_sessions(names_only: bool) -> Result<()> {
+    let sessions_dir = std::path::PathBuf::from(".slab/sessions");
+
+    if !sessions_dir.exists() {
+        if !names_only {
+            println!("{}", style("No sessions directory found.").yellow());
+        }
+        return Ok(());
+    }
+
+    let mut sessions: Vec<String> = Vec::new();
+
+    if let Ok(entries) = std::fs::read_dir(&sessions_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().map(|e| e == "json").unwrap_or(false) {
+                if let Some(stem) = path.file_stem() {
+                    sessions.push(stem.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+
+    sessions.sort();
+
+    if sessions.is_empty() {
+        if !names_only {
+            println!("{}", style("No saved sessions found.").yellow());
+            println!(
+                "{}",
+                style("Start a session with: slab chat --session <name>").dim()
+            );
+        }
+        return Ok(());
+    }
+
+    // For shell completion scripts - just output names
+    if names_only {
+        for session in &sessions {
+            println!("{}", session);
+        }
+        return Ok(());
+    }
+
+    println!("{}", style("Saved sessions:").cyan().bold());
+    println!();
+
+    for session in &sessions {
+        println!("  {}", style(session).green());
     }
 
     println!();

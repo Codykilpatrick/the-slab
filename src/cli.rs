@@ -74,7 +74,18 @@ pub enum Commands {
     },
 
     /// List available Ollama models
-    Models,
+    Models {
+        /// Output only model names (for shell completion scripts)
+        #[arg(long)]
+        names_only: bool,
+    },
+
+    /// List saved sessions
+    Sessions {
+        /// Output only session names (for shell completion scripts)
+        #[arg(long)]
+        names_only: bool,
+    },
 
     /// Run prompt tests
     Test {
@@ -125,7 +136,12 @@ impl Clone for Commands {
                 init: *init,
                 set: set.clone(),
             },
-            Commands::Models => Commands::Models,
+            Commands::Models { names_only } => Commands::Models {
+                names_only: *names_only,
+            },
+            Commands::Sessions { names_only } => Commands::Sessions {
+                names_only: *names_only,
+            },
             Commands::Test { filter, model } => Commands::Test {
                 filter: filter.clone(),
                 model: model.clone(),

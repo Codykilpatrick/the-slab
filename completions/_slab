@@ -1,0 +1,105 @@
+#compdef slab
+
+# Zsh completion for slab
+# Install: Place in $fpath directory (e.g., ~/.zsh/completions/)
+
+# Function to get available models dynamically
+_slab_models() {
+    local models
+    models=(${(f)"$(slab models --names-only 2>/dev/null)"})
+    _describe -t models 'model' models
+}
+
+# Function to get available sessions dynamically
+_slab_sessions() {
+    local sessions
+    sessions=(${(f)"$(slab sessions --names-only 2>/dev/null)"})
+    _describe -t sessions 'session' sessions
+}
+
+_slab() {
+    local context state state_descr line
+    typeset -A opt_args
+
+    local -a global_opts
+    global_opts=(
+        '(-m --model)'{-m,--model}'[Model to use (overrides config default)]:model:_slab_models'
+        '(-c --config)'{-c,--config}'[Path to config file]:config file:_files -g "*.toml"'
+        '(-v --verbose)'{-v,--verbose}'[Enable verbose output]'
+        '--no-stream[Disable streaming (wait for complete response)]'
+        '(-h --help)'{-h,--help}'[Print help]'
+        '(-V --version)'{-V,--version}'[Print version]'
+    )
+
+    local -a commands
+    commands=(
+        'chat:Start interactive chat REPL'
+        'run:Run a single prompt and exit'
+        'config:Show or edit configuration'
+        'models:List available Ollama models'
+        'sessions:List saved sessions'
+        'test:Run prompt tests'
+        'init:Initialize a new project with .slab directory'
+        'completions:Generate shell completions'
+    )
+
+    _arguments -C \
+        $global_opts \
+        "1: :->command" \
+        "*::arg:->args"
+
+    case $state in
+        command)
+            _describe -t commands 'command' commands
+            ;;
+        args)
+            case $line[1] in
+                chat)
+                    _arguments \
+                        '(-C --continue)'{-C,--continue}'[Continue from the last session]' \
+                        '(-s --session)'{-s,--session}'[Use a named session]:session:_slab_sessions' \
+                        $global_opts
+                    ;;
+                run)
+                    _arguments \
+                        ':prompt:' \
+                        $global_opts
+                    ;;
+                config)
+                    _arguments \
+                        '--show[Show current configuration]' \
+                        '--init[Initialize a new config file]' \
+                        '--set[Set a config value (key=value)]:key=value:' \
+                        $global_opts
+                    ;;
+                models)
+                    _arguments \
+                        '--names-only[Output only model names (for shell completion)]' \
+                        $global_opts
+                    ;;
+                sessions)
+                    _arguments \
+                        '--names-only[Output only session names (for shell completion)]' \
+                        $global_opts
+                    ;;
+                test)
+                    _arguments \
+                        '--filter[Filter tests by pattern]:pattern:' \
+                        '--model[Run tests with a specific model]:model:_slab_models' \
+                        $global_opts
+                    ;;
+                init)
+                    _arguments $global_opts
+                    ;;
+                completions)
+                    local -a shells
+                    shells=(bash zsh fish powershell)
+                    _arguments \
+                        '1:shell:(${shells[@]})'
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_slab "$@"

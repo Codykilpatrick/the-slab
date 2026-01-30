@@ -6,6 +6,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::completion::{CompletionContext, CompletionEngine, CompletionKind};
 use crate::config::Config;
 use crate::context::ContextManager;
 use crate::error::Result;
@@ -24,10 +25,12 @@ pub struct Repl {
     templates: TemplateManager,
     rules: RuleEngine,
     highlighter: Highlighter,
+    completion_engine: CompletionEngine,
     streaming: bool,
     project_root: PathBuf,
     file_ops_enabled: bool,
     history: Vec<String>,
+    cached_models: Option<Vec<String>>,
     #[allow(dead_code)]
     history_index: usize,
 }
@@ -70,6 +73,15 @@ impl Repl {
         // Create highlighter for syntax highlighting
         let highlighter = Highlighter::new();
 
+        // Create completion engine with template commands
+        let mut completion_engine = CompletionEngine::new();
+        let template_cmds: Vec<(String, String)> = templates
+            .list()
+            .iter()
+            .map(|t| (t.command.clone(), t.description.clone()))
+            .collect();
+        completion_engine.add_template_commands(template_cmds);
+
         Self {
             client,
             config,
@@ -78,10 +90,12 @@ impl Repl {
             templates,
             rules,
             highlighter,
+            completion_engine,
             streaming,
             project_root,
             file_ops_enabled: true,
             history: Vec::new(),
+            cached_models: None,
             history_index: 0,
         }
     }
@@ -89,6 +103,11 @@ impl Repl {
     pub async fn run(&mut self) -> Result<()> {
         let term = Term::stdout();
         term.clear_screen().ok();
+
+        // Cache available models for completion
+        if let Ok(models) = self.client.list_models().await {
+            self.cached_models = Some(models.into_iter().map(|m| m.name).collect());
+        }
 
         self.print_welcome();
 
@@ -169,6 +188,7 @@ impl Repl {
         let mut stdout = io::stdout();
         let mut history_index = self.history.len();
         let mut saved_input = String::new();
+        let mut current_preview: Option<String> = None;
 
         // Enable raw mode for better input handling
         crossterm::terminal::enable_raw_mode().ok();
@@ -176,6 +196,12 @@ impl Repl {
         loop {
             if event::poll(Duration::from_millis(100)).unwrap_or(false) {
                 if let Ok(Event::Key(key_event)) = event::read() {
+                    // Clear any existing preview before processing
+                    if let Some(ref preview) = current_preview {
+                        self.clear_preview(preview.len());
+                    }
+                    current_preview = None;
+
                     match (key_event.code, key_event.modifiers) {
                         // Ctrl+C - cancel current input
                         (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
@@ -205,6 +231,18 @@ impl Repl {
                             }
                             return Ok(Some(input));
                         }
+                        // Right arrow - accept one character of preview or move cursor
+                        (KeyCode::Right, _) => {
+                            if let Some(preview) = self.get_inline_preview(&input) {
+                                if !preview.is_empty() {
+                                    // Accept first character of preview
+                                    let first_char = preview.chars().next().unwrap();
+                                    input.push(first_char);
+                                    print!("{}", first_char);
+                                    stdout.flush().ok();
+                                }
+                            }
+                        }
                         // Up arrow - history back
                         (KeyCode::Up, _) => {
                             if !self.history.is_empty() && history_index > 0 {
@@ -214,9 +252,7 @@ impl Repl {
                                 }
                                 history_index -= 1;
                                 // Clear current line
-                                for _ in 0..input.len() {
-                                    print!("\x08 \x08");
-                                }
+                                self.clear_input(&input);
                                 input = self.history[history_index].clone();
                                 print!("{}", input);
                                 stdout.flush().ok();
@@ -226,9 +262,7 @@ impl Repl {
                         (KeyCode::Down, _) => {
                             if history_index < self.history.len() {
                                 // Clear current line
-                                for _ in 0..input.len() {
-                                    print!("\x08 \x08");
-                                }
+                                self.clear_input(&input);
                                 history_index += 1;
                                 if history_index == self.history.len() {
                                     input = saved_input.clone();
@@ -241,27 +275,20 @@ impl Repl {
                         }
                         // Tab - command completion
                         (KeyCode::Tab, _) => {
-                            if input.starts_with('/') {
-                                let completions = self.get_completions(&input);
-                                if completions.len() == 1 {
-                                    // Clear and replace with completion
-                                    for _ in 0..input.len() {
-                                        print!("\x08 \x08");
-                                    }
-                                    input = completions[0].clone();
-                                    print!("{}", input);
-                                    stdout.flush().ok();
-                                } else if completions.len() > 1 {
-                                    // Show available completions
-                                    println!();
-                                    for c in &completions {
-                                        print!("{} ", style(c).cyan());
-                                    }
-                                    println!();
-                                    self.print_prompt();
-                                    print!("{}", input);
-                                    stdout.flush().ok();
-                                }
+                            let completions = self.get_completions(&input);
+                            if completions.len() == 1 {
+                                // Single match - auto-complete
+                                self.clear_input(&input);
+                                input = completions[0].0.clone();
+                                print!("{}", input);
+                                stdout.flush().ok();
+                            } else if !completions.is_empty() {
+                                // Multiple matches - show completion menu
+                                println!();
+                                self.show_completion_menu(&completions);
+                                self.print_prompt();
+                                print!("{}", input);
+                                stdout.flush().ok();
                             }
                         }
                         // Backspace
@@ -280,42 +307,333 @@ impl Repl {
                         }
                         _ => {}
                     }
+
+                    // Show inline preview after input changes
+                    if input.starts_with('/') && self.config.ui.inline_completion_preview {
+                        if let Some(preview) = self.get_inline_preview(&input) {
+                            if !preview.is_empty() {
+                                // Show dimmed preview text
+                                print!("{}", style(&preview).dim());
+                                // Move cursor back to end of actual input
+                                for _ in 0..preview.len() {
+                                    print!("\x08");
+                                }
+                                stdout.flush().ok();
+                                current_preview = Some(preview);
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
-    fn get_completions(&self, partial: &str) -> Vec<String> {
-        let commands = vec![
-            "/help",
-            "/exit",
-            "/quit",
-            "/clear",
-            "/model",
-            "/context",
-            "/tokens",
-            "/files",
-            "/add",
-            "/remove",
-            "/fileops",
-            "/templates",
-            "/rules",
-        ];
+    /// Clear the input text from the terminal
+    fn clear_input(&self, input: &str) {
+        for _ in 0..input.len() {
+            print!("\x08 \x08");
+        }
+    }
 
-        let mut completions: Vec<String> = commands
-            .iter()
-            .filter(|c| c.starts_with(partial))
-            .map(|c| c.to_string())
-            .collect();
+    /// Clear the preview text (spaces over it)
+    fn clear_preview(&self, len: usize) {
+        // Move forward, overwrite with spaces, move back
+        for _ in 0..len {
+            print!(" ");
+        }
+        for _ in 0..len {
+            print!("\x08");
+        }
+        for _ in 0..len {
+            print!("\x08");
+        }
+        for _ in 0..len {
+            print!(" ");
+        }
+        for _ in 0..len {
+            print!("\x08");
+        }
+    }
 
-        // Add template commands
-        for t in self.templates.list() {
-            if t.command.starts_with(partial) {
-                completions.push(t.command.clone());
+    /// Get the inline preview text (the part to show dimmed after cursor)
+    fn get_inline_preview(&self, input: &str) -> Option<String> {
+        let completions = self.get_completions(input);
+        if let Some((text, _, _)) = completions.first() {
+            // Return the part of the completion that extends beyond current input
+            if text.len() > input.len() && text.starts_with(input) {
+                return Some(text[input.len()..].to_string());
             }
         }
+        None
+    }
 
-        completions
+    /// Get completions using the completion engine
+    /// Returns Vec<(text, description, kind)>
+    fn get_completions(&self, input: &str) -> Vec<(String, Option<String>, CompletionKind)> {
+        let context_files: Vec<&PathBuf> = self.context.list_files();
+
+        let ctx = CompletionContext {
+            context_files,
+            cwd: &self.project_root,
+            models: self.cached_models.clone(),
+            history: &self.history,
+        };
+
+        self.completion_engine
+            .complete(input, &ctx)
+            .into_iter()
+            .map(|c| (c.text, c.description, c.kind))
+            .collect()
+    }
+
+    /// Display a formatted completion menu (non-interactive, for display only)
+    fn show_completion_menu(&self, completions: &[(String, Option<String>, CompletionKind)]) {
+        let max_items = self.config.ui.max_completion_items;
+
+        // Find the max width for alignment
+        let max_text_len = completions
+            .iter()
+            .map(|(t, _, _)| t.len())
+            .max()
+            .unwrap_or(10);
+
+        // Print top border
+        let width = (max_text_len + 35).min(60);
+        println!(
+            "{}",
+            style(format!("╭─ Completions {}╮", "─".repeat(width - 15))).dim()
+        );
+
+        // Print completions
+        for (idx, (text, desc, kind)) in completions.iter().take(max_items).enumerate() {
+            self.print_completion_item(idx, None, text, desc.as_deref(), *kind, max_text_len);
+        }
+
+        if completions.len() > max_items {
+            println!(
+                "│ {} {}",
+                style("...").dim(),
+                style(format!("and {} more", completions.len() - max_items)).dim()
+            );
+        }
+
+        // Print bottom border with hint
+        println!(
+            "{}",
+            style(format!(
+                "╰─ ↑↓ navigate, Enter select, Esc cancel {}╯",
+                "─".repeat(width.saturating_sub(40))
+            ))
+            .dim()
+        );
+    }
+
+    /// Print a single completion item
+    fn print_completion_item(
+        &self,
+        _idx: usize,
+        selected: Option<usize>,
+        text: &str,
+        desc: Option<&str>,
+        kind: CompletionKind,
+        max_text_len: usize,
+    ) {
+        let icon = match kind {
+            CompletionKind::Command => style("/").cyan(),
+            CompletionKind::File => style("📄").white(),
+            CompletionKind::Directory => style("📁").yellow(),
+            CompletionKind::Model => style("🤖").magenta(),
+            CompletionKind::Template => style("📋").green(),
+            CompletionKind::History => style("⏱").dim(),
+            _ => style(" ").white(),
+        };
+
+        let is_selected = selected == Some(_idx);
+        let prefix = if is_selected { ">" } else { " " };
+
+        let padded_text = format!("{:width$}", text, width = max_text_len + 2);
+        let text_styled = if is_selected {
+            style(padded_text).bold().reverse()
+        } else {
+            match kind {
+                CompletionKind::Command => style(padded_text).cyan(),
+                CompletionKind::Directory => style(padded_text).yellow(),
+                CompletionKind::Model => style(padded_text).magenta(),
+                CompletionKind::History => style(padded_text).dim(),
+                _ => style(padded_text).green(),
+            }
+        };
+
+        if let Some(d) = desc {
+            let truncated: String = d.chars().take(30).collect();
+            println!(
+                "│{} {} {} {}",
+                style(prefix).cyan(),
+                icon,
+                text_styled,
+                style(truncated).dim()
+            );
+        } else {
+            println!("│{} {} {}", style(prefix).cyan(), icon, text_styled);
+        }
+    }
+
+    /// Show interactive completion menu with arrow key navigation
+    /// Returns the selected completion text or None if cancelled
+    #[allow(dead_code)]
+    fn show_interactive_completion_menu(
+        &self,
+        completions: &[(String, Option<String>, CompletionKind)],
+    ) -> Option<String> {
+        if completions.is_empty() {
+            return None;
+        }
+
+        let max_items = self.config.ui.max_completion_items;
+        let visible_items: Vec<_> = completions.iter().take(max_items).collect();
+        let mut selected: usize = 0;
+        let mut stdout = io::stdout();
+
+        // Calculate dimensions
+        let max_text_len = visible_items
+            .iter()
+            .map(|(t, _, _)| t.len())
+            .max()
+            .unwrap_or(10);
+        let width = (max_text_len + 35).min(60);
+        let menu_height = visible_items.len() + 3; // items + borders + hint
+
+        // Print initial menu
+        println!(
+            "{}",
+            style(format!("╭─ Completions {}╮", "─".repeat(width - 15))).dim()
+        );
+        for (idx, (text, desc, kind)) in visible_items.iter().enumerate() {
+            self.print_completion_item(
+                idx,
+                Some(selected),
+                text,
+                desc.as_deref(),
+                *kind,
+                max_text_len,
+            );
+        }
+        if completions.len() > max_items {
+            println!(
+                "│ {} {}",
+                style("...").dim(),
+                style(format!("and {} more", completions.len() - max_items)).dim()
+            );
+        }
+        println!(
+            "{}",
+            style(format!(
+                "╰─ ↑↓ navigate, Enter select, Esc cancel {}╯",
+                "─".repeat(width.saturating_sub(40))
+            ))
+            .dim()
+        );
+        stdout.flush().ok();
+
+        // Interactive loop
+        loop {
+            if event::poll(Duration::from_millis(100)).unwrap_or(false) {
+                if let Ok(Event::Key(key_event)) = event::read() {
+                    match key_event.code {
+                        KeyCode::Up => {
+                            if selected > 0 {
+                                selected -= 1;
+                                self.redraw_menu(
+                                    &visible_items,
+                                    selected,
+                                    max_text_len,
+                                    width,
+                                    menu_height,
+                                );
+                            }
+                        }
+                        KeyCode::Down => {
+                            if selected < visible_items.len() - 1 {
+                                selected += 1;
+                                self.redraw_menu(
+                                    &visible_items,
+                                    selected,
+                                    max_text_len,
+                                    width,
+                                    menu_height,
+                                );
+                            }
+                        }
+                        KeyCode::Enter => {
+                            // Clear menu and return selection
+                            self.clear_menu_lines(menu_height);
+                            return Some(visible_items[selected].0.clone());
+                        }
+                        KeyCode::Esc => {
+                            // Clear menu and cancel
+                            self.clear_menu_lines(menu_height);
+                            return None;
+                        }
+                        KeyCode::Tab => {
+                            // Tab also selects
+                            self.clear_menu_lines(menu_height);
+                            return Some(visible_items[selected].0.clone());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    /// Redraw the completion menu (moves cursor up, redraws, moves back)
+    fn redraw_menu(
+        &self,
+        items: &[&(String, Option<String>, CompletionKind)],
+        selected: usize,
+        max_text_len: usize,
+        width: usize,
+        menu_height: usize,
+    ) {
+        let mut stdout = io::stdout();
+
+        // Move cursor up to start of menu
+        print!("\x1b[{}A", menu_height);
+
+        // Redraw
+        println!(
+            "{}",
+            style(format!("╭─ Completions {}╮", "─".repeat(width - 15))).dim()
+        );
+        for (idx, (text, desc, kind)) in items.iter().enumerate() {
+            self.print_completion_item(
+                idx,
+                Some(selected),
+                text,
+                desc.as_deref(),
+                *kind,
+                max_text_len,
+            );
+        }
+        println!(
+            "{}",
+            style(format!(
+                "╰─ ↑↓ navigate, Enter select, Esc cancel {}╯",
+                "─".repeat(width.saturating_sub(40))
+            ))
+            .dim()
+        );
+
+        stdout.flush().ok();
+    }
+
+    /// Clear menu lines from terminal
+    fn clear_menu_lines(&self, lines: usize) {
+        // Move up and clear each line
+        for _ in 0..lines {
+            print!("\x1b[1A\x1b[2K");
+        }
+        io::stdout().flush().ok();
     }
 
     async fn handle_command(&mut self, command: &str) -> Result<bool> {
