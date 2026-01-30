@@ -18,6 +18,8 @@
 - [Quick Start](#quick-start)
 - [Usage](#usage)
 - [Configuration](#configuration)
+  - [Theming](#theming)
+  - [Box Styles](#box-styles)
 - [File Operations](#file-operations)
 - [Templates](#templates)
 - [Rules](#rules)
@@ -38,6 +40,8 @@
 - **Testing Framework** - Validate LLM responses with assertions
 - **Session Management** - Save and resume conversations
 - **Syntax Highlighting** - Beautiful code blocks in responses
+- **Theming** - 6 built-in color themes with customizable box styles
+- **Smart Autocomplete** - Fish-style inline preview with fuzzy matching
 
 ## Installation
 
@@ -163,7 +167,11 @@ top_p = 0.9
 system_prompt = "You are a helpful coding assistant."
 
 [ui]
+theme = "default"
+box_style = "rounded"
 streaming = true
+show_status_bar = true
+show_banner = false
 inline_completion_preview = true
 fuzzy_completion = true
 max_completion_items = 10
@@ -176,11 +184,52 @@ max_completion_items = 10
 | `ollama_host` | Ollama API URL | `http://localhost:11434` |
 | `default_model` | Default model to use | First available |
 | `context_limit` | Max context tokens | `32768` |
+| `ui.theme` | Color theme (see [Theming](#theming)) | `default` |
+| `ui.box_style` | Box drawing style | `rounded` |
 | `ui.streaming` | Enable streaming | `true` |
+| `ui.show_status_bar` | Show model/context status bar | `true` |
+| `ui.show_banner` | Show ASCII banner on startup | `false` |
 | `ui.auto_apply_file_ops` | Auto-apply file operations | `false` |
 | `ui.inline_completion_preview` | Show fish-style ghost text | `true` |
 | `ui.fuzzy_completion` | Enable fuzzy matching | `true` |
 | `ui.max_completion_items` | Max items in completion menu | `10` |
+| `ui.code_block_style` | Code block rendering | `bordered` |
+| `ui.diff_style` | Diff display format | `unified` |
+
+### Theming
+
+The Slab includes 6 built-in color themes:
+
+| Theme | Description |
+|-------|-------------|
+| `default` | Cyan/blue palette (default) |
+| `monokai` | Warm orange/purple palette |
+| `nord` | Cool blue Nordic palette |
+| `solarized` | Solarized color scheme |
+| `minimal` | Grayscale with subtle colors |
+| `dracula` | Purple/pink Dracula theme |
+
+Set the theme in your config or via CLI:
+
+```bash
+slab config --set ui.theme=nord
+```
+
+### Box Styles
+
+Customize the box drawing characters used for panels and borders:
+
+| Style | Characters |
+|-------|------------|
+| `rounded` | `╭ ╮ ╰ ╯ ─ │` (default) |
+| `sharp` | `┌ ┐ └ ┘ ─ │` |
+| `double` | `╔ ╗ ╚ ╝ ═ ║` |
+| `heavy` | `┏ ┓ ┗ ┛ ━ ┃` |
+| `ascii` | `+ + + + - |` |
+
+```bash
+slab config --set ui.box_style=double
+```
 
 ## File Operations
 
