@@ -82,6 +82,80 @@ impl ContextManager {
         Ok(())
     }
 
+    /// Add all files in a directory to the context (recursively)
+    /// Returns the number of files added and a list of skipped files
+    pub fn add_directory(&mut self, path: impl AsRef<Path>) -> Result<(usize, Vec<String>), String> {
+        let path = path.as_ref();
+        let full_path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.project_root.join(path)
+        };
+
+        if !full_path.exists() {
+            return Err(format!("Directory not found: {}", path.display()));
+        }
+
+        if !full_path.is_dir() {
+            return Err(format!("Not a directory: {}", path.display()));
+        }
+
+        let mut added = 0;
+        let mut skipped = Vec::new();
+
+        // Walk the directory recursively
+        for entry in walkdir::WalkDir::new(&full_path)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(|e| !is_hidden(e) && !is_ignored_dir(e))
+        {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+
+            if !entry.file_type().is_file() {
+                continue;
+            }
+
+            let file_path = entry.path();
+
+            // Skip binary files
+            if is_likely_binary(file_path) {
+                skipped.push(format!("{} (binary)", file_path.display()));
+                continue;
+            }
+
+            // Try to read the file
+            match fs::read_to_string(file_path) {
+                Ok(content) => {
+                    // Use relative path from the original path argument
+                    let relative = file_path.strip_prefix(&full_path)
+                        .map(|p| path.join(p))
+                        .unwrap_or_else(|_| file_path.to_path_buf());
+                    self.files.insert(relative, content);
+                    added += 1;
+                }
+                Err(_) => {
+                    skipped.push(format!("{} (unreadable)", file_path.display()));
+                }
+            }
+        }
+
+        Ok((added, skipped))
+    }
+
+    /// Check if the path is a directory
+    pub fn is_directory(&self, path: impl AsRef<Path>) -> bool {
+        let path = path.as_ref();
+        let full_path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.project_root.join(path)
+        };
+        full_path.is_dir()
+    }
+
     /// Remove a file from the context
     pub fn remove_file(&mut self, path: impl AsRef<Path>) -> bool {
         let path = path.as_ref().to_path_buf();
@@ -270,4 +344,67 @@ mod tests {
         assert_eq!(messages[1].role, "user");
         assert_eq!(messages[2].role, "assistant");
     }
+}
+
+/// Check if a directory entry is hidden (starts with .)
+fn is_hidden(entry: &walkdir::DirEntry) -> bool {
+    entry.file_name()
+        .to_str()
+        .map(|s| s.starts_with('.'))
+        .unwrap_or(false)
+}
+
+/// Check if a directory should be ignored (node_modules, target, etc.)
+fn is_ignored_dir(entry: &walkdir::DirEntry) -> bool {
+    if !entry.file_type().is_dir() {
+        return false;
+    }
+
+    let ignored = [
+        "node_modules",
+        "target",
+        "dist",
+        "build",
+        "__pycache__",
+        ".git",
+        ".svn",
+        ".hg",
+        "vendor",
+        "venv",
+        ".venv",
+        "env",
+        ".env",
+    ];
+
+    entry.file_name()
+        .to_str()
+        .map(|s| ignored.contains(&s))
+        .unwrap_or(false)
+}
+
+/// Check if a file is likely binary based on extension
+fn is_likely_binary(path: &Path) -> bool {
+    let binary_extensions = [
+        // Images
+        "png", "jpg", "jpeg", "gif", "bmp", "ico", "webp", "svg",
+        // Audio/Video
+        "mp3", "mp4", "wav", "avi", "mov", "flv", "wmv", "webm",
+        // Archives
+        "zip", "tar", "gz", "bz2", "7z", "rar", "xz",
+        // Executables
+        "exe", "dll", "so", "dylib", "bin", "o", "a",
+        // Documents
+        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+        // Fonts
+        "ttf", "otf", "woff", "woff2", "eot",
+        // Other binary
+        "pyc", "pyo", "class", "jar", "war",
+        "sqlite", "db", "sqlite3",
+        "lock", // Often large and not useful
+    ];
+
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|ext| binary_extensions.contains(&ext.to_lowercase().as_str()))
+        .unwrap_or(false)
 }

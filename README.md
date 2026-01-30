@@ -88,7 +88,7 @@ slab completions bash        # Generate shell completions
 | `/context` | Show context summary |
 | `/tokens` | Show token usage |
 | `/files` | List files in context |
-| `/add <file>` | Add file to context |
+| `/add <path>` | Add file or directory to context |
 | `/remove <file>` | Remove file from context |
 | `/fileops [on\|off]` | Toggle file operations |
 | `/templates` | List available templates |

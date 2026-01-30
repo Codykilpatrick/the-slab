@@ -421,22 +421,55 @@ impl Repl {
             }
             "add" => {
                 if parts.len() < 2 {
-                    println!("{} /add <file>", style("Usage:").dim());
+                    println!("{} /add <file|directory>", style("Usage:").dim());
                     return Ok(true);
                 }
                 let path = parts[1..].join(" ");
-                match self.context.add_file(&path) {
-                    Ok(()) => {
-                        println!(
-                            "{} Added {} to context",
-                            style("✓").green(),
-                            style(&path).cyan()
-                        );
-                        // Update rules based on new file list
-                        self.update_rules_for_context();
+
+                // Check if it's a directory
+                if self.context.is_directory(&path) {
+                    match self.context.add_directory(&path) {
+                        Ok((added, skipped)) => {
+                            println!(
+                                "{} Added {} file(s) from {} to context",
+                                style("✓").green(),
+                                style(added).cyan(),
+                                style(&path).cyan()
+                            );
+                            if !skipped.is_empty() && skipped.len() <= 5 {
+                                println!("{} Skipped:", style("⚠").yellow());
+                                for s in &skipped {
+                                    println!("    {}", style(s).dim());
+                                }
+                            } else if !skipped.is_empty() {
+                                println!(
+                                    "{} Skipped {} file(s) (binary/unreadable)",
+                                    style("⚠").yellow(),
+                                    skipped.len()
+                                );
+                            }
+                            // Update rules based on new file list
+                            self.update_rules_for_context();
+                        }
+                        Err(e) => {
+                            println!("{} {}", style("Error:").red(), e);
+                        }
                     }
-                    Err(e) => {
-                        println!("{} {}", style("Error:").red(), e);
+                } else {
+                    // Single file
+                    match self.context.add_file(&path) {
+                        Ok(()) => {
+                            println!(
+                                "{} Added {} to context",
+                                style("✓").green(),
+                                style(&path).cyan()
+                            );
+                            // Update rules based on new file list
+                            self.update_rules_for_context();
+                        }
+                        Err(e) => {
+                            println!("{} {}", style("Error:").red(), e);
+                        }
                     }
                 }
                 Ok(true)
@@ -613,7 +646,10 @@ impl Repl {
         println!("  {} - Show context summary", style("/context").green());
         println!("  {} - Show token usage", style("/tokens").green());
         println!("  {} - List files in context", style("/files").green());
-        println!("  {} - Add file to context", style("/add <file>").green());
+        println!(
+            "  {} - Add file or directory to context",
+            style("/add <path>").green()
+        );
         println!(
             "  {} - Remove file from context",
             style("/remove <file>").green()
@@ -702,11 +738,12 @@ impl Repl {
                  approximate token counts.",
             ),
             "add" => (
-                "/add <file>",
-                "Add a file to context",
-                "Adds a file's contents to the conversation context. The file content \
-                 is included in every message to the model.\n\n\
-                 Examples:\n  /add src/main.rs\n  /add ../other/file.py",
+                "/add <file|directory>",
+                "Add a file or directory to context",
+                "Adds file contents to the conversation context. If a directory is specified, \
+                 all files are added recursively.\n\n\
+                 Directories skip: hidden files, node_modules, target, .git, binary files\n\n\
+                 Examples:\n  /add src/main.rs\n  /add src/\n  /add ../other/",
             ),
             "remove" | "rm" => (
                 "/remove <file>, /rm <file>",
