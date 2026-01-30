@@ -213,8 +213,7 @@ impl Repl {
             self.theme.border.apply_to(chars.horizontal),
             self.theme.primary.apply_to(" The Slab "),
             self.theme.border.apply_to(
-                std::iter::repeat(chars.horizontal)
-                    .take(width.saturating_sub(13))
+                std::iter::repeat_n(chars.horizontal, width.saturating_sub(13))
                     .collect::<String>()
             ),
             self.theme.border.apply_to(chars.top_right)
@@ -222,14 +221,13 @@ impl Repl {
 
         // Content line
         println!(
-            "{} {}{}{}{}{}{}",
+            "{} {}{}{}{}{}",
             self.theme.border.apply_to(chars.vertical),
             self.theme.warning.apply_to(&model_str),
             self.theme.border.apply_to(chars.vertical),
             self.theme.secondary.apply_to(&context_str),
             " ".repeat(padding),
-            self.theme.border.apply_to(chars.vertical),
-            ""
+            self.theme.border.apply_to(chars.vertical)
         );
 
         // Bottom border
@@ -237,8 +235,7 @@ impl Repl {
             "{}{}{}",
             self.theme.border.apply_to(chars.bottom_left),
             self.theme.border.apply_to(
-                std::iter::repeat(chars.horizontal)
-                    .take(width.saturating_sub(2))
+                std::iter::repeat_n(chars.horizontal, width.saturating_sub(2))
                     .collect::<String>()
             ),
             self.theme.border.apply_to(chars.bottom_right)

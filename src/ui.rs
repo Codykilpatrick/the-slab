@@ -74,8 +74,7 @@ impl BoxRenderer {
                 "{}{}",
                 self.theme.primary.apply_to(&title_str),
                 self.theme.border.apply_to(
-                    std::iter::repeat(chars.horizontal)
-                        .take(remaining)
+                    std::iter::repeat_n(chars.horizontal, remaining)
                         .collect::<String>()
                 )
             ));
@@ -83,8 +82,7 @@ impl BoxRenderer {
             output.push_str(&format!(
                 "{}",
                 self.theme.border.apply_to(
-                    std::iter::repeat(chars.horizontal)
-                        .take(inner_width)
+                    std::iter::repeat_n(chars.horizontal, inner_width)
                         .collect::<String>()
                 )
             ));
@@ -99,7 +97,7 @@ impl BoxRenderer {
         for line in content.lines() {
             output.push_str(&format!("{} ", self.theme.border.apply_to(chars.vertical)));
             output.push_str(line);
-            output.push_str(&format!("\n"));
+            output.push('\n');
         }
 
         // Bottom border
@@ -107,8 +105,7 @@ impl BoxRenderer {
             "{}{}{}",
             self.theme.border.apply_to(chars.bottom_left),
             self.theme.border.apply_to(
-                std::iter::repeat(chars.horizontal)
-                    .take(inner_width)
+                std::iter::repeat_n(chars.horizontal, inner_width)
                     .collect::<String>()
             ),
             self.theme.border.apply_to(chars.bottom_right)
@@ -134,8 +131,7 @@ impl BoxRenderer {
             "{}{}",
             title_style.apply_to(&title_str),
             self.theme.border.apply_to(
-                std::iter::repeat(chars.horizontal)
-                    .take(remaining)
+                std::iter::repeat_n(chars.horizontal, remaining)
                     .collect::<String>()
             )
         ));
@@ -159,8 +155,7 @@ impl BoxRenderer {
             "{}{}{}",
             self.theme.border.apply_to(chars.bottom_left),
             self.theme.border.apply_to(
-                std::iter::repeat(chars.horizontal)
-                    .take(inner_width)
+                std::iter::repeat_n(chars.horizontal, inner_width)
                     .collect::<String>()
             ),
             self.theme.border.apply_to(chars.bottom_right)
