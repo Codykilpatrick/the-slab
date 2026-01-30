@@ -73,17 +73,15 @@ impl BoxRenderer {
             output.push_str(&format!(
                 "{}{}",
                 self.theme.primary.apply_to(&title_str),
-                self.theme.border.apply_to(
-                    std::iter::repeat_n(chars.horizontal, remaining)
-                        .collect::<String>()
-                )
+                self.theme
+                    .border
+                    .apply_to(std::iter::repeat_n(chars.horizontal, remaining).collect::<String>())
             ));
         } else {
             output.push_str(&format!(
                 "{}",
                 self.theme.border.apply_to(
-                    std::iter::repeat_n(chars.horizontal, inner_width)
-                        .collect::<String>()
+                    std::iter::repeat_n(chars.horizontal, inner_width).collect::<String>()
                 )
             ));
         }
@@ -104,10 +102,9 @@ impl BoxRenderer {
         output.push_str(&format!(
             "{}{}{}",
             self.theme.border.apply_to(chars.bottom_left),
-            self.theme.border.apply_to(
-                std::iter::repeat_n(chars.horizontal, inner_width)
-                    .collect::<String>()
-            ),
+            self.theme
+                .border
+                .apply_to(std::iter::repeat_n(chars.horizontal, inner_width).collect::<String>()),
             self.theme.border.apply_to(chars.bottom_right)
         ));
         output.push('\n');
@@ -130,10 +127,9 @@ impl BoxRenderer {
         output.push_str(&format!(
             "{}{}",
             title_style.apply_to(&title_str),
-            self.theme.border.apply_to(
-                std::iter::repeat_n(chars.horizontal, remaining)
-                    .collect::<String>()
-            )
+            self.theme
+                .border
+                .apply_to(std::iter::repeat_n(chars.horizontal, remaining).collect::<String>())
         ));
 
         output.push_str(&format!(
@@ -154,10 +150,9 @@ impl BoxRenderer {
         output.push_str(&format!(
             "{}{}{}",
             self.theme.border.apply_to(chars.bottom_left),
-            self.theme.border.apply_to(
-                std::iter::repeat_n(chars.horizontal, inner_width)
-                    .collect::<String>()
-            ),
+            self.theme
+                .border
+                .apply_to(std::iter::repeat_n(chars.horizontal, inner_width).collect::<String>()),
             self.theme.border.apply_to(chars.bottom_right)
         ));
         output.push('\n');
