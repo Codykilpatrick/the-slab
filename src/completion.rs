@@ -601,8 +601,8 @@ mod tests {
         let completions = engine.complete("/he", &context);
         assert!(completions.iter().any(|c| c.text == "/help"));
 
-        // Test model completion
+        // Test model completion (now includes command prefix)
         let completions = engine.complete("/model ll", &context);
-        assert!(completions.iter().any(|c| c.text == "llama3"));
+        assert!(completions.iter().any(|c| c.text == "/model llama3"));
     }
 }

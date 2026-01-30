@@ -213,7 +213,7 @@ pub fn divider(width: usize) -> String {
 #[allow(dead_code)]
 pub fn titled_divider(title: &str, width: usize) -> String {
     let title_part = format!("─ {} ", title);
-    let remaining = width.saturating_sub(title_part.len());
+    let remaining = width.saturating_sub(title_part.chars().count());
     format!("{}{}", title_part, "─".repeat(remaining))
 }
 
