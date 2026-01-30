@@ -104,11 +104,11 @@ impl RuleEngine {
     }
 
     fn load_yaml_rule(&mut self, path: &Path) -> Result<(), String> {
-        let content = fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read file: {}", e))?;
+        let content =
+            fs::read_to_string(path).map_err(|e| format!("Failed to read file: {}", e))?;
 
-        let rule: Rule = serde_yaml::from_str(&content)
-            .map_err(|e| format!("Failed to parse YAML: {}", e))?;
+        let rule: Rule =
+            serde_yaml::from_str(&content).map_err(|e| format!("Failed to parse YAML: {}", e))?;
 
         if rule.enabled {
             self.rules.push(rule);
@@ -131,8 +131,8 @@ impl RuleEngine {
     }
 
     fn parse_markdown_rule(&self, path: &Path) -> Result<Rule, String> {
-        let content = fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read file: {}", e))?;
+        let content =
+            fs::read_to_string(path).map_err(|e| format!("Failed to read file: {}", e))?;
 
         // Extract name from filename
         let name = path
@@ -142,10 +142,10 @@ impl RuleEngine {
             .to_string();
 
         // Check for YAML frontmatter
-        let (metadata, rule_content) = if content.starts_with("---") {
-            if let Some(end_idx) = content[3..].find("---") {
-                let frontmatter = &content[3..end_idx + 3];
-                let rest = &content[end_idx + 6..];
+        let (metadata, rule_content) = if let Some(after_start) = content.strip_prefix("---") {
+            if let Some(end_idx) = after_start.find("---") {
+                let frontmatter = &after_start[..end_idx];
+                let rest = &after_start[end_idx + 3..];
 
                 // Try to parse frontmatter
                 if let Ok(meta) = serde_yaml::from_str::<RuleMetadata>(frontmatter) {
@@ -161,9 +161,15 @@ impl RuleEngine {
         };
 
         Ok(Rule {
-            name: metadata.as_ref().and_then(|m| m.name.clone()).unwrap_or(name),
+            name: metadata
+                .as_ref()
+                .and_then(|m| m.name.clone())
+                .unwrap_or(name),
             description: metadata.as_ref().and_then(|m| m.description.clone()),
-            applies_to: metadata.as_ref().map(|m| m.applies_to.clone()).unwrap_or_default(),
+            applies_to: metadata
+                .as_ref()
+                .map(|m| m.applies_to.clone())
+                .unwrap_or_default(),
             priority: metadata.as_ref().map(|m| m.priority).unwrap_or(0),
             enabled: metadata.as_ref().map(|m| m.enabled).unwrap_or(true),
             content: rule_content,
@@ -203,7 +209,8 @@ impl RuleEngine {
     pub fn rules_for_files(&self, files: &[PathBuf]) -> Vec<&Rule> {
         if files.is_empty() {
             // No files = return all rules with no applies_to restriction
-            return self.rules
+            return self
+                .rules
                 .iter()
                 .filter(|r| r.enabled && r.applies_to.is_empty())
                 .collect();

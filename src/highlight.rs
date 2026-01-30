@@ -62,7 +62,7 @@ impl Highlighter {
         let mut current_lang = String::new();
 
         for line in response.lines() {
-            if line.starts_with("```") {
+            if let Some(after_backticks) = line.strip_prefix("```") {
                 if in_code_block {
                     // End of code block - highlight and append
                     result.push_str(&format!("{}\n", style("─".repeat(40)).dim()));
@@ -73,7 +73,7 @@ impl Highlighter {
                     in_code_block = false;
                 } else {
                     // Start of code block
-                    current_lang = line[3..].trim().to_string();
+                    current_lang = after_backticks.trim().to_string();
                     // Strip filename if present (e.g., "rust:src/main.rs" -> "rust")
                     if let Some(colon_pos) = current_lang.find(':') {
                         let (lang, _path) = current_lang.split_at(colon_pos);

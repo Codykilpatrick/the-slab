@@ -1,6 +1,31 @@
-# The Slab
+<p align="center">
+  <img src="the-slab.png" alt="The Slab" width="400">
+</p>
 
-An offline CLI tool for interacting with local LLMs via [Ollama](https://ollama.ai). Designed for air-gapped environments with zero external dependencies at runtime.
+<h1 align="center">The Slab</h1>
+
+<p align="center">
+  <strong>An offline CLI tool for local LLMs via Ollama</strong><br>
+  Designed for air-gapped environments with zero external dependencies at runtime.
+</p>
+
+---
+
+## Table of Contents
+
+- [Features](#features)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [File Operations](#file-operations)
+- [Templates](#templates)
+- [Rules](#rules)
+- [Testing](#testing)
+- [Shell Completions](#shell-completions)
+- [Project Structure](#project-structure)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
 
 ## Features
 
@@ -107,6 +132,7 @@ slab completions bash        # Generate shell completions
 ## Configuration
 
 Configuration is loaded from (in order of priority):
+
 1. `.slab/config.toml` (project-local)
 2. `~/.config/slab/config.toml` (global)
 
@@ -222,7 +248,8 @@ prompt: |
 ```
 
 Use in REPL:
-```
+
+```text
 /review focus=security
 ```
 
@@ -280,6 +307,7 @@ tags:
 ```
 
 Run tests:
+
 ```bash
 slab test                        # Run all tests
 slab test --filter rust          # Filter by name/tag
@@ -315,7 +343,7 @@ slab completions fish > ~/.config/fish/completions/slab.fish
 
 ## Project Structure
 
-```
+```text
 .slab/
 ├── config.toml      # Project configuration
 ├── templates/       # Prompt templates
@@ -328,7 +356,7 @@ slab completions fish > ~/.config/fish/completions/slab.fish
 
 ### Ollama not running
 
-```
+```text
 Error: Failed to connect to Ollama
 
 Suggestions:
@@ -355,6 +383,8 @@ slab models
 # Pull the missing model
 ollama pull <model-name>
 ```
+
+---
 
 ## License
 

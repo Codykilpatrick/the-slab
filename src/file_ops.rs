@@ -25,10 +25,7 @@ pub enum FileOperation {
         original_content: Option<String>,
     },
     #[allow(dead_code)]
-    Rename {
-        from: PathBuf,
-        to: PathBuf,
-    },
+    Rename { from: PathBuf, to: PathBuf },
 }
 
 impl FileOperation {
@@ -47,7 +44,9 @@ impl FileOperation {
         let path = self.path();
 
         // Ensure path is within project root
-        let canonical_root = project_root.canonicalize().unwrap_or_else(|_| project_root.to_path_buf());
+        let canonical_root = project_root
+            .canonicalize()
+            .unwrap_or_else(|_| project_root.to_path_buf());
         let full_path = if path.is_absolute() {
             path.to_path_buf()
         } else {
@@ -55,7 +54,9 @@ impl FileOperation {
         };
 
         // Try to canonicalize, or use the joined path for new files
-        let canonical_path = full_path.canonicalize().unwrap_or_else(|_| full_path.clone());
+        let canonical_path = full_path
+            .canonicalize()
+            .unwrap_or_else(|_| full_path.clone());
 
         if !canonical_path.starts_with(&canonical_root) {
             return Err(SlabError::FileOperation(format!(
@@ -78,7 +79,7 @@ impl FileOperation {
             } else {
                 project_root.join(to)
             };
-            let to_canonical = to_full.canonicalize().unwrap_or_else(|_| to_full);
+            let to_canonical = to_full.canonicalize().unwrap_or(to_full);
 
             if !to_canonical.starts_with(&canonical_root) {
                 return Err(SlabError::FileOperation(format!(
@@ -94,7 +95,11 @@ impl FileOperation {
     /// Generate a preview of this operation
     pub fn preview(&self) -> String {
         match self {
-            FileOperation::Create { path, content, language } => {
+            FileOperation::Create {
+                path,
+                content,
+                language,
+            } => {
                 let lang = language.as_deref().unwrap_or("text");
                 format!(
                     "{} {} ({})\n{}",
@@ -104,7 +109,12 @@ impl FileOperation {
                     preview_content(content, language.as_deref())
                 )
             }
-            FileOperation::Edit { path, new_content, original_content, language } => {
+            FileOperation::Edit {
+                path,
+                new_content,
+                original_content,
+                language,
+            } => {
                 let original = original_content.as_deref().unwrap_or("");
                 format!(
                     "{} {}\n{}",
@@ -143,7 +153,9 @@ impl FileOperation {
                 }
                 fs::write(&full_path, content)?;
             }
-            FileOperation::Edit { path, new_content, .. } => {
+            FileOperation::Edit {
+                path, new_content, ..
+            } => {
                 let full_path = project_root.join(path);
                 fs::write(&full_path, new_content)?;
             }
@@ -176,21 +188,29 @@ impl FileOperation {
                 path: path.clone(),
                 original_content: None,
             }),
-            FileOperation::Edit { path, original_content, language, .. } => {
-                original_content.as_ref().map(|content| FileOperation::Edit {
+            FileOperation::Edit {
+                path,
+                original_content,
+                language,
+                ..
+            } => original_content
+                .as_ref()
+                .map(|content| FileOperation::Edit {
                     path: path.clone(),
                     new_content: content.clone(),
                     original_content: None,
                     language: language.clone(),
-                })
-            }
-            FileOperation::Delete { path, original_content } => {
-                original_content.as_ref().map(|content| FileOperation::Create {
+                }),
+            FileOperation::Delete {
+                path,
+                original_content,
+            } => original_content
+                .as_ref()
+                .map(|content| FileOperation::Create {
                     path: path.clone(),
                     content: content.clone(),
                     language: None,
-                })
-            }
+                }),
             FileOperation::Rename { from, to } => Some(FileOperation::Rename {
                 from: to.clone(),
                 to: from.clone(),
@@ -201,13 +221,20 @@ impl FileOperation {
     /// Load original content for edit/delete operations
     pub fn load_original(&mut self, project_root: &Path) {
         match self {
-            FileOperation::Edit { path, original_content, .. } => {
+            FileOperation::Edit {
+                path,
+                original_content,
+                ..
+            } => {
                 if original_content.is_none() {
                     let full_path = project_root.join(path);
                     *original_content = fs::read_to_string(&full_path).ok();
                 }
             }
-            FileOperation::Delete { path, original_content } => {
+            FileOperation::Delete {
+                path,
+                original_content,
+            } => {
                 if original_content.is_none() {
                     let full_path = project_root.join(path);
                     *original_content = fs::read_to_string(&full_path).ok();
@@ -290,7 +317,7 @@ pub fn parse_file_operations(text: &str, project_root: &Path) -> Vec<FileOperati
             }
         }
 
-        if line.starts_with("```") {
+        if let Some(header) = line.strip_prefix("```") {
             if in_code_block {
                 // End of code block
                 if let Some(path) = current_path.take() {
@@ -316,7 +343,6 @@ pub fn parse_file_operations(text: &str, project_root: &Path) -> Vec<FileOperati
                 in_code_block = false;
             } else {
                 // Start of code block - parse the header
-                let header = &line[3..];
                 let (lang, path) = parse_code_block_header(header);
                 current_lang = lang;
                 current_path = path;
@@ -419,12 +445,18 @@ pub struct FileOperationUI {
 
 impl FileOperationUI {
     pub fn new() -> Self {
-        Self { term: Term::stdout() }
+        Self {
+            term: Term::stdout(),
+        }
     }
 
     /// Show file operations and ask for confirmation
     /// Returns the list of operations that should be applied
-    pub fn confirm_operations(&self, operations: &mut [FileOperation], project_root: &Path) -> Result<Vec<usize>> {
+    pub fn confirm_operations(
+        &self,
+        operations: &mut [FileOperation],
+        project_root: &Path,
+    ) -> Result<Vec<usize>> {
         if operations.is_empty() {
             return Ok(vec![]);
         }
@@ -515,7 +547,11 @@ impl FileOperationUI {
         Ok(approved)
     }
 
-    fn confirm_individual(&self, operations: &[FileOperation], project_root: &Path) -> Result<Vec<usize>> {
+    fn confirm_individual(
+        &self,
+        operations: &[FileOperation],
+        project_root: &Path,
+    ) -> Result<Vec<usize>> {
         let mut approved = Vec::new();
 
         for (i, op) in operations.iter().enumerate() {
@@ -562,11 +598,7 @@ fn short_preview(op: &FileOperation) -> String {
             )
         }
         FileOperation::Delete { path, .. } => {
-            format!(
-                "{} {}",
-                style("DELETE").red(),
-                style(path.display()).cyan()
-            )
+            format!("{} {}", style("DELETE").red(), style(path.display()).cyan())
         }
         FileOperation::Rename { from, to } => {
             format!(

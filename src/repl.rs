@@ -131,10 +131,7 @@ impl Repl {
             style("·").dim(),
             style(&self.model).yellow()
         );
-        println!(
-            "{}",
-            style("Type /help for commands, /exit to quit").dim()
-        );
+        println!("{}", style("Type /help for commands, /exit to quit").dim());
         println!();
     }
 
@@ -290,8 +287,19 @@ impl Repl {
 
     fn get_completions(&self, partial: &str) -> Vec<String> {
         let commands = vec![
-            "/help", "/exit", "/quit", "/clear", "/model", "/context", "/tokens",
-            "/files", "/add", "/remove", "/fileops", "/templates", "/rules",
+            "/help",
+            "/exit",
+            "/quit",
+            "/clear",
+            "/model",
+            "/context",
+            "/tokens",
+            "/files",
+            "/add",
+            "/remove",
+            "/fileops",
+            "/templates",
+            "/rules",
         ];
 
         let mut completions: Vec<String> = commands
@@ -356,16 +364,8 @@ impl Repl {
             "context" => {
                 let summary = self.context.summary();
                 println!("{}", style("Context:").cyan().bold());
-                println!(
-                    "  {} {}",
-                    style("Messages:").dim(),
-                    summary.messages_count
-                );
-                println!(
-                    "  {} {}",
-                    style("Files:").dim(),
-                    summary.files_count
-                );
+                println!("  {} {}", style("Messages:").dim(), summary.messages_count);
+                println!("  {} {}", style("Files:").dim(), summary.files_count);
                 println!(
                     "  {} {} / {}",
                     style("Tokens:").dim(),
@@ -375,7 +375,11 @@ impl Repl {
                 println!(
                     "  {} {}",
                     style("System prompt:").dim(),
-                    if summary.has_system_prompt { "yes" } else { "no" }
+                    if summary.has_system_prompt {
+                        "yes"
+                    } else {
+                        "no"
+                    }
                 );
                 println!(
                     "  {} {}",
@@ -393,7 +397,8 @@ impl Repl {
                     summary.token_budget
                 );
                 let remaining = summary.token_budget.saturating_sub(summary.tokens_used);
-                let pct = (summary.tokens_used as f64 / summary.token_budget as f64 * 100.0) as usize;
+                let pct =
+                    (summary.tokens_used as f64 / summary.token_budget as f64 * 100.0) as usize;
                 println!(
                     "{} {} remaining ({}% used)",
                     style("Budget:").dim(),
@@ -510,10 +515,7 @@ impl Repl {
                             println!("{}", style("File operations disabled").yellow());
                         }
                         _ => {
-                            println!(
-                                "{} /fileops [on|off]",
-                                style("Usage:").dim()
-                            );
+                            println!("{} /fileops [on|off]", style("Usage:").dim());
                         }
                     }
                 } else {
@@ -572,15 +574,8 @@ impl Repl {
                 Ok(true)
             }
             _ => {
-                println!(
-                    "{} {}",
-                    style("Unknown command:").red(),
-                    command
-                );
-                println!(
-                    "{}",
-                    style("Type /help for available commands.").dim()
-                );
+                println!("{} {}", style("Unknown command:").red(), command);
+                println!("{}", style("Type /help for available commands.").dim());
                 Ok(true)
             }
         }
@@ -613,7 +608,10 @@ impl Repl {
         }
 
         // Render the template
-        let prompt = match self.templates.render(&template.name, &variables, &self.context) {
+        let prompt = match self
+            .templates
+            .render(&template.name, &variables, &self.context)
+        {
             Ok(p) => p,
             Err(e) => {
                 println!("{} {}", style("Template error:").red(), e);
@@ -659,7 +657,10 @@ impl Repl {
             "  {} - Toggle file operations",
             style("/fileops [on|off]").green()
         );
-        println!("  {} - List available templates", style("/templates").green());
+        println!(
+            "  {} - List available templates",
+            style("/templates").green()
+        );
         println!("  {} - Show loaded rules", style("/rules").green());
 
         // Show template commands
@@ -843,7 +844,8 @@ impl Repl {
 
         // Add assistant message to context
         if !response.is_empty() {
-            self.context.add_message(Message::assistant(response.clone()));
+            self.context
+                .add_message(Message::assistant(response.clone()));
         }
 
         // Process file operations if enabled
@@ -924,7 +926,12 @@ impl Repl {
 
     fn update_rules_for_context(&mut self) {
         if self.rules.rule_count() > 0 {
-            let files: Vec<PathBuf> = self.context.list_files().iter().map(|p| (*p).clone()).collect();
+            let files: Vec<PathBuf> = self
+                .context
+                .list_files()
+                .iter()
+                .map(|p| (*p).clone())
+                .collect();
             if let Some(rules_prompt) = self.rules.build_rules_prompt(&files) {
                 self.context.set_rules(rules_prompt);
             }
@@ -1035,7 +1042,7 @@ impl Repl {
 }
 
 /// Get directories to search for templates
-fn get_template_directories(project_root: &PathBuf) -> Vec<PathBuf> {
+fn get_template_directories(project_root: &std::path::Path) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
 
     // Project-local templates (highest priority)

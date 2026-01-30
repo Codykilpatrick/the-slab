@@ -92,36 +92,32 @@ impl Assertion {
                     ))
                 }
             }
-            Assertion::Regex { pattern } => {
-                match Regex::new(pattern) {
-                    Ok(re) => {
-                        if re.is_match(response) {
-                            AssertionResult::Pass
-                        } else {
-                            AssertionResult::Fail(format!(
-                                "Response does not match pattern: {}",
-                                truncate(pattern, 50)
-                            ))
-                        }
+            Assertion::Regex { pattern } => match Regex::new(pattern) {
+                Ok(re) => {
+                    if re.is_match(response) {
+                        AssertionResult::Pass
+                    } else {
+                        AssertionResult::Fail(format!(
+                            "Response does not match pattern: {}",
+                            truncate(pattern, 50)
+                        ))
                     }
-                    Err(e) => AssertionResult::Fail(format!("Invalid regex: {}", e)),
                 }
-            }
-            Assertion::NotRegex { pattern } => {
-                match Regex::new(pattern) {
-                    Ok(re) => {
-                        if !re.is_match(response) {
-                            AssertionResult::Pass
-                        } else {
-                            AssertionResult::Fail(format!(
-                                "Response matches forbidden pattern: {}",
-                                truncate(pattern, 50)
-                            ))
-                        }
+                Err(e) => AssertionResult::Fail(format!("Invalid regex: {}", e)),
+            },
+            Assertion::NotRegex { pattern } => match Regex::new(pattern) {
+                Ok(re) => {
+                    if !re.is_match(response) {
+                        AssertionResult::Pass
+                    } else {
+                        AssertionResult::Fail(format!(
+                            "Response matches forbidden pattern: {}",
+                            truncate(pattern, 50)
+                        ))
                     }
-                    Err(e) => AssertionResult::Fail(format!("Invalid regex: {}", e)),
                 }
-            }
+                Err(e) => AssertionResult::Fail(format!("Invalid regex: {}", e)),
+            },
             Assertion::MaxLatency { ms } => {
                 if latency_ms <= *ms {
                     AssertionResult::Pass
@@ -132,12 +128,10 @@ impl Assertion {
                     ))
                 }
             }
-            Assertion::ValidJson => {
-                match serde_json::from_str::<serde_json::Value>(response) {
-                    Ok(_) => AssertionResult::Pass,
-                    Err(e) => AssertionResult::Fail(format!("Invalid JSON: {}", e)),
-                }
-            }
+            Assertion::ValidJson => match serde_json::from_str::<serde_json::Value>(response) {
+                Ok(_) => AssertionResult::Pass,
+                Err(e) => AssertionResult::Fail(format!("Invalid JSON: {}", e)),
+            },
             Assertion::LengthBetween { min, max } => {
                 let len = response.len();
                 if len >= *min && len <= *max {
@@ -208,8 +202,7 @@ pub fn load_tests_from_directory(dir: &Path) -> Vec<TestCase> {
 
 /// Load test cases from a single file
 fn load_test_file(path: &Path) -> Result<Vec<TestCase>, String> {
-    let content = fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read file: {}", e))?;
+    let content = fs::read_to_string(path).map_err(|e| format!("Failed to read file: {}", e))?;
 
     // Try parsing as a single test
     if let Ok(test) = serde_yaml::from_str::<TestCase>(&content) {
@@ -243,7 +236,12 @@ impl TestRunner {
     }
 
     /// Run all tests and return results
-    pub async fn run_tests(&self, tests: &[TestCase], filter: Option<&str>, model_override: Option<&str>) -> Vec<TestResult> {
+    pub async fn run_tests(
+        &self,
+        tests: &[TestCase],
+        filter: Option<&str>,
+        model_override: Option<&str>,
+    ) -> Vec<TestResult> {
         let mut results = Vec::new();
 
         // Filter tests if pattern provided
@@ -500,14 +498,8 @@ mod tests {
     #[test]
     fn test_length_between_assertion() {
         let assertion = Assertion::LengthBetween { min: 5, max: 10 };
-        assert!(matches!(
-            assertion.check("hello", 0),
-            AssertionResult::Pass
-        ));
-        assert!(matches!(
-            assertion.check("hi", 0),
-            AssertionResult::Fail(_)
-        ));
+        assert!(matches!(assertion.check("hello", 0), AssertionResult::Pass));
+        assert!(matches!(assertion.check("hi", 0), AssertionResult::Fail(_)));
         assert!(matches!(
             assertion.check("hello world!", 0),
             AssertionResult::Fail(_)

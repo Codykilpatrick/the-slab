@@ -3,7 +3,11 @@ use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "slab")]
-#[command(author, version, about = "The Slab - Offline CLI for local LLMs via Ollama")]
+#[command(
+    author,
+    version,
+    about = "The Slab - Offline CLI for local LLMs via Ollama"
+)]
 #[command(propagate_version = true)]
 pub struct Cli {
     /// Model to use (overrides config default)
@@ -27,6 +31,7 @@ pub struct Cli {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[allow(clippy::enum_variant_names)]
 pub enum Shell {
     Bash,
     Zsh,
@@ -105,7 +110,10 @@ impl Cli {
 impl Clone for Commands {
     fn clone(&self) -> Self {
         match self {
-            Commands::Chat { r#continue, session } => Commands::Chat {
+            Commands::Chat {
+                r#continue,
+                session,
+            } => Commands::Chat {
                 r#continue: *r#continue,
                 session: session.clone(),
             },

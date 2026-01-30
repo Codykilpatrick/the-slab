@@ -140,12 +140,7 @@ impl OllamaClient {
         let mut req = request;
         req.stream = Some(true);
 
-        let resp = self
-            .client
-            .post(&url)
-            .json(&req)
-            .send()
-            .await?;
+        let resp = self.client.post(&url).json(&req).send().await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -153,10 +148,7 @@ impl OllamaClient {
             if body.contains("model") && body.contains("not found") {
                 return Err(SlabError::ModelNotFound(req.model));
             }
-            return Err(SlabError::StreamError(format!(
-                "HTTP {}: {}",
-                status, body
-            )));
+            return Err(SlabError::StreamError(format!("HTTP {}: {}", status, body)));
         }
 
         let (tx, rx) = mpsc::channel(100);
@@ -174,10 +166,10 @@ impl OllamaClient {
                             match serde_json::from_str::<ChatResponse>(line) {
                                 Ok(resp) => {
                                     if let Some(msg) = resp.message {
-                                        if !msg.content.is_empty() {
-                                            if tx.send(Ok(msg.content)).await.is_err() {
-                                                return;
-                                            }
+                                        if !msg.content.is_empty()
+                                            && tx.send(Ok(msg.content)).await.is_err()
+                                        {
+                                            return;
                                         }
                                     }
                                     if resp.done {
@@ -221,17 +213,11 @@ impl OllamaClient {
             if body.contains("model") && body.contains("not found") {
                 return Err(SlabError::ModelNotFound(req.model));
             }
-            return Err(SlabError::StreamError(format!(
-                "HTTP {}: {}",
-                status, body
-            )));
+            return Err(SlabError::StreamError(format!("HTTP {}: {}", status, body)));
         }
 
         let chat_resp: ChatResponse = resp.json().await?;
-        Ok(chat_resp
-            .message
-            .map(|m| m.content)
-            .unwrap_or_default())
+        Ok(chat_resp.message.map(|m| m.content).unwrap_or_default())
     }
 
     /// Send a generate request (single prompt, not chat)
@@ -249,10 +235,7 @@ impl OllamaClient {
             if body.contains("model") && body.contains("not found") {
                 return Err(SlabError::ModelNotFound(req.model));
             }
-            return Err(SlabError::StreamError(format!(
-                "HTTP {}: {}",
-                status, body
-            )));
+            return Err(SlabError::StreamError(format!("HTTP {}: {}", status, body)));
         }
 
         let gen_resp: GenerateResponse = resp.json().await?;

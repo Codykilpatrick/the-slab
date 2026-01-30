@@ -89,8 +89,8 @@ impl TemplateManager {
 
     /// Load a single template from a YAML file
     pub fn load_template(&mut self, path: &Path) -> Result<(), String> {
-        let content = fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read template file: {}", e))?;
+        let content =
+            fs::read_to_string(path).map_err(|e| format!("Failed to read template file: {}", e))?;
 
         let template: PromptTemplate = serde_yaml::from_str(&content)
             .map_err(|e| format!("Failed to parse template YAML: {}", e))?;
@@ -111,10 +111,14 @@ impl TemplateManager {
     pub fn load_defaults(&mut self) {
         let defaults = get_default_templates();
         for template in defaults {
-            if let Err(e) = self.handlebars
+            if let Err(e) = self
+                .handlebars
                 .register_template_string(&template.name, &template.prompt)
             {
-                eprintln!("Warning: Failed to register default template {}: {}", template.name, e);
+                eprintln!(
+                    "Warning: Failed to register default template {}: {}",
+                    template.name, e
+                );
                 continue;
             }
             let command_key = template.command.trim_start_matches('/').to_string();
@@ -136,10 +140,7 @@ impl TemplateManager {
     /// List template commands
     #[allow(dead_code)]
     pub fn commands(&self) -> Vec<String> {
-        self.templates
-            .values()
-            .map(|t| t.command.clone())
-            .collect()
+        self.templates.values().map(|t| t.command.clone()).collect()
     }
 
     /// Render a template with the given variables and context
@@ -149,7 +150,8 @@ impl TemplateManager {
         variables: &HashMap<String, String>,
         context: &ContextManager,
     ) -> Result<String, String> {
-        let template = self.templates
+        let template = self
+            .templates
             .values()
             .find(|t| t.name == template_name || t.command.trim_start_matches('/') == template_name)
             .ok_or_else(|| format!("Template not found: {}", template_name))?;
@@ -172,8 +174,14 @@ impl TemplateManager {
         }
 
         // Add built-in variables
-        render_data.insert("date".to_string(), chrono::Local::now().format("%Y-%m-%d").to_string());
-        render_data.insert("datetime".to_string(), chrono::Local::now().format("%Y-%m-%d %H:%M").to_string());
+        render_data.insert(
+            "date".to_string(),
+            chrono::Local::now().format("%Y-%m-%d").to_string(),
+        );
+        render_data.insert(
+            "datetime".to_string(),
+            chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
+        );
 
         // Add project name (current directory name)
         if let Ok(cwd) = std::env::current_dir() {
@@ -188,9 +196,7 @@ impl TemplateManager {
             let mut files_content = String::new();
             for path in files {
                 if let Some(content) = context.get_file_content(path) {
-                    let ext = path.extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("txt");
+                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("txt");
                     files_content.push_str(&format!(
                         "### {}\n```{}\n{}\n```\n\n",
                         path.display(),
@@ -228,13 +234,13 @@ fn get_default_templates() -> Vec<PromptTemplate> {
             name: "code_review".to_string(),
             command: "/review".to_string(),
             description: "Review code for issues and improvements".to_string(),
-            variables: vec![
-                TemplateVariable {
-                    name: "focus".to_string(),
-                    default: Some("all aspects".to_string()),
-                    description: Some("What to focus on (security, performance, style, etc.)".to_string()),
-                },
-            ],
+            variables: vec![TemplateVariable {
+                name: "focus".to_string(),
+                default: Some("all aspects".to_string()),
+                description: Some(
+                    "What to focus on (security, performance, style, etc.)".to_string(),
+                ),
+            }],
             prompt: r#"Please review the following code, focusing on {{focus}}.
 
 {{#if content}}
@@ -252,19 +258,18 @@ Please identify:
 2. Security concerns
 3. Performance improvements
 4. Code style and readability improvements
-5. Any other suggestions"#.to_string(),
+5. Any other suggestions"#
+                .to_string(),
         },
         PromptTemplate {
             name: "explain".to_string(),
             command: "/explain".to_string(),
             description: "Explain how code works".to_string(),
-            variables: vec![
-                TemplateVariable {
-                    name: "detail".to_string(),
-                    default: Some("moderate".to_string()),
-                    description: Some("Level of detail (brief, moderate, detailed)".to_string()),
-                },
-            ],
+            variables: vec![TemplateVariable {
+                name: "detail".to_string(),
+                default: Some("moderate".to_string()),
+                description: Some("Level of detail (brief, moderate, detailed)".to_string()),
+            }],
             prompt: r#"Please explain the following code with {{detail}} detail.
 
 {{#if content}}
@@ -281,19 +286,18 @@ Explain:
 1. What the code does at a high level
 2. How the main components work
 3. Any important patterns or techniques used
-4. Potential edge cases or gotchas"#.to_string(),
+4. Potential edge cases or gotchas"#
+                .to_string(),
         },
         PromptTemplate {
             name: "refactor".to_string(),
             command: "/refactor".to_string(),
             description: "Suggest refactoring improvements".to_string(),
-            variables: vec![
-                TemplateVariable {
-                    name: "goal".to_string(),
-                    default: Some("improve readability and maintainability".to_string()),
-                    description: Some("Refactoring goal".to_string()),
-                },
-            ],
+            variables: vec![TemplateVariable {
+                name: "goal".to_string(),
+                default: Some("improve readability and maintainability".to_string()),
+                description: Some("Refactoring goal".to_string()),
+            }],
             prompt: r#"Please suggest how to refactor the following code to {{goal}}.
 
 {{#if content}}
@@ -309,20 +313,20 @@ Explain:
 For each suggestion:
 1. Explain what to change and why
 2. Show the refactored code
-3. Note any trade-offs or considerations"#.to_string(),
+3. Note any trade-offs or considerations"#
+                .to_string(),
         },
         PromptTemplate {
             name: "test_gen".to_string(),
             command: "/test".to_string(),
             description: "Generate tests for code".to_string(),
-            variables: vec![
-                TemplateVariable {
-                    name: "framework".to_string(),
-                    default: Some("the appropriate testing framework".to_string()),
-                    description: Some("Testing framework to use".to_string()),
-                },
-            ],
-            prompt: r#"Please generate comprehensive tests for the following code using {{framework}}.
+            variables: vec![TemplateVariable {
+                name: "framework".to_string(),
+                default: Some("the appropriate testing framework".to_string()),
+                description: Some("Testing framework to use".to_string()),
+            }],
+            prompt:
+                r#"Please generate comprehensive tests for the following code using {{framework}}.
 
 {{#if content}}
 {{content}}
@@ -340,19 +344,18 @@ Include tests for:
 3. Error conditions
 4. Boundary conditions
 
-Use descriptive test names that explain what is being tested."#.to_string(),
+Use descriptive test names that explain what is being tested."#
+                    .to_string(),
         },
         PromptTemplate {
             name: "fix".to_string(),
             command: "/fix".to_string(),
             description: "Fix a bug or issue".to_string(),
-            variables: vec![
-                TemplateVariable {
-                    name: "issue".to_string(),
-                    default: None,
-                    description: Some("Description of the bug or issue".to_string()),
-                },
-            ],
+            variables: vec![TemplateVariable {
+                name: "issue".to_string(),
+                default: None,
+                description: Some("Description of the bug or issue".to_string()),
+            }],
             prompt: r#"Please help fix the following issue: {{issue}}
 
 {{#if files}}
@@ -365,19 +368,18 @@ Please:
 1. Identify the root cause
 2. Explain the fix
 3. Provide the corrected code
-4. Suggest how to prevent similar issues"#.to_string(),
+4. Suggest how to prevent similar issues"#
+                .to_string(),
         },
         PromptTemplate {
             name: "document".to_string(),
             command: "/doc".to_string(),
             description: "Generate documentation for code".to_string(),
-            variables: vec![
-                TemplateVariable {
-                    name: "style".to_string(),
-                    default: Some("the language's standard documentation style".to_string()),
-                    description: Some("Documentation style".to_string()),
-                },
-            ],
+            variables: vec![TemplateVariable {
+                name: "style".to_string(),
+                default: Some("the language's standard documentation style".to_string()),
+                description: Some("Documentation style".to_string()),
+            }],
             prompt: r#"Please generate documentation for the following code using {{style}}.
 
 {{#if content}}
@@ -394,7 +396,8 @@ Include:
 1. Function/method descriptions
 2. Parameter documentation
 3. Return value documentation
-4. Usage examples where appropriate"#.to_string(),
+4. Usage examples where appropriate"#
+                .to_string(),
         },
     ]
 }
@@ -402,8 +405,7 @@ Include:
 /// Write default templates to a directory
 #[allow(dead_code)]
 pub fn write_default_templates(dir: &Path) -> Result<(), String> {
-    fs::create_dir_all(dir)
-        .map_err(|e| format!("Failed to create templates directory: {}", e))?;
+    fs::create_dir_all(dir).map_err(|e| format!("Failed to create templates directory: {}", e))?;
 
     let defaults = get_default_templates();
     for template in defaults {
@@ -418,8 +420,7 @@ pub fn write_default_templates(dir: &Path) -> Result<(), String> {
         let yaml = serde_yaml::to_string(&template)
             .map_err(|e| format!("Failed to serialize template: {}", e))?;
 
-        fs::write(&path, yaml)
-            .map_err(|e| format!("Failed to write template file: {}", e))?;
+        fs::write(&path, yaml).map_err(|e| format!("Failed to write template file: {}", e))?;
     }
 
     Ok(())

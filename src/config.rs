@@ -185,12 +185,16 @@ impl Config {
 
     /// Get the model config for a given model name, or create a default one
     pub fn get_model_config(&self, model: &str) -> ModelConfig {
-        let mut config = self.models.get(model).cloned().unwrap_or_else(|| ModelConfig {
-            name: model.to_string(),
-            temperature: default_temperature(),
-            top_p: default_top_p(),
-            system_prompt: None,
-        });
+        let mut config = self
+            .models
+            .get(model)
+            .cloned()
+            .unwrap_or_else(|| ModelConfig {
+                name: model.to_string(),
+                temperature: default_temperature(),
+                top_p: default_top_p(),
+                system_prompt: None,
+            });
 
         // Use the global system prompt if no model-specific one is set
         if config.system_prompt.is_none() {
@@ -206,8 +210,8 @@ impl Config {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let content = toml::to_string_pretty(self)
-            .map_err(|e| SlabError::ConfigError(e.to_string()))?;
+        let content =
+            toml::to_string_pretty(self).map_err(|e| SlabError::ConfigError(e.to_string()))?;
         std::fs::write(&path, content)?;
         Ok(())
     }

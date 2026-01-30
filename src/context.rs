@@ -72,8 +72,8 @@ impl ContextManager {
             return Err(format!("Not a file: {}", path.display()));
         }
 
-        let content = fs::read_to_string(&full_path)
-            .map_err(|e| format!("Failed to read file: {}", e))?;
+        let content =
+            fs::read_to_string(&full_path).map_err(|e| format!("Failed to read file: {}", e))?;
 
         // Store with relative path for display
         let display_path = path.to_path_buf();
@@ -84,7 +84,10 @@ impl ContextManager {
 
     /// Add all files in a directory to the context (recursively)
     /// Returns the number of files added and a list of skipped files
-    pub fn add_directory(&mut self, path: impl AsRef<Path>) -> Result<(usize, Vec<String>), String> {
+    pub fn add_directory(
+        &mut self,
+        path: impl AsRef<Path>,
+    ) -> Result<(usize, Vec<String>), String> {
         let path = path.as_ref();
         let full_path = if path.is_absolute() {
             path.to_path_buf()
@@ -130,7 +133,8 @@ impl ContextManager {
             match fs::read_to_string(file_path) {
                 Ok(content) => {
                     // Use relative path from the original path argument
-                    let relative = file_path.strip_prefix(&full_path)
+                    let relative = file_path
+                        .strip_prefix(&full_path)
                         .map(|p| path.join(p))
                         .unwrap_or_else(|_| file_path.to_path_buf());
                     self.files.insert(relative, content);
@@ -235,9 +239,7 @@ impl ContextManager {
         if !self.files.is_empty() {
             let mut files_section = String::from("## Files in Context\n\n");
             for (path, content) in &self.files {
-                let ext = path.extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("txt");
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("txt");
                 files_section.push_str(&format!(
                     "### {}\n```{}\n{}\n```\n\n",
                     path.display(),
@@ -254,9 +256,7 @@ impl ContextManager {
     /// Calculate total token count for current context
     pub fn token_count(&self) -> usize {
         let messages = self.build_messages();
-        messages.iter()
-            .map(|m| estimate_tokens(&m.content))
-            .sum()
+        messages.iter().map(|m| estimate_tokens(&m.content)).sum()
     }
 
     /// Get token budget
@@ -354,7 +354,8 @@ mod tests {
 
 /// Check if a directory entry is hidden (starts with .)
 fn is_hidden(entry: &walkdir::DirEntry) -> bool {
-    entry.file_name()
+    entry
+        .file_name()
         .to_str()
         .map(|s| s.starts_with('.'))
         .unwrap_or(false)
@@ -382,7 +383,8 @@ fn is_ignored_dir(entry: &walkdir::DirEntry) -> bool {
         ".env",
     ];
 
-    entry.file_name()
+    entry
+        .file_name()
         .to_str()
         .map(|s| ignored.contains(&s))
         .unwrap_or(false)
@@ -392,20 +394,13 @@ fn is_ignored_dir(entry: &walkdir::DirEntry) -> bool {
 fn is_likely_binary(path: &Path) -> bool {
     let binary_extensions = [
         // Images
-        "png", "jpg", "jpeg", "gif", "bmp", "ico", "webp", "svg",
-        // Audio/Video
-        "mp3", "mp4", "wav", "avi", "mov", "flv", "wmv", "webm",
-        // Archives
-        "zip", "tar", "gz", "bz2", "7z", "rar", "xz",
-        // Executables
-        "exe", "dll", "so", "dylib", "bin", "o", "a",
-        // Documents
-        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-        // Fonts
-        "ttf", "otf", "woff", "woff2", "eot",
-        // Other binary
-        "pyc", "pyo", "class", "jar", "war",
-        "sqlite", "db", "sqlite3",
+        "png", "jpg", "jpeg", "gif", "bmp", "ico", "webp", "svg", // Audio/Video
+        "mp3", "mp4", "wav", "avi", "mov", "flv", "wmv", "webm", // Archives
+        "zip", "tar", "gz", "bz2", "7z", "rar", "xz", // Executables
+        "exe", "dll", "so", "dylib", "bin", "o", "a", // Documents
+        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", // Fonts
+        "ttf", "otf", "woff", "woff2", "eot", // Other binary
+        "pyc", "pyo", "class", "jar", "war", "sqlite", "db", "sqlite3",
         "lock", // Often large and not useful
     ];
 

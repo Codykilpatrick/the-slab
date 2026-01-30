@@ -43,11 +43,12 @@ async fn run() -> Result<()> {
 
     // Handle commands
     match cli.command_or_default() {
-        Commands::Chat { r#continue, session: session_name } => {
+        Commands::Chat {
+            r#continue,
+            session: session_name,
+        } => {
             // Health check first
-            if let Err(e) = client.health_check().await {
-                return Err(e);
-            }
+            client.health_check().await?;
 
             // Get model (CLI override > config default > first available)
             let model = get_model(&cli, &config, &client).await?;
@@ -90,38 +91,32 @@ async fn run() -> Result<()> {
 
         Commands::Run { prompt } => {
             // Health check
-            if let Err(e) = client.health_check().await {
-                return Err(e);
-            }
+            client.health_check().await?;
 
             let model = get_model(&cli, &config, &client).await?;
             repl::run_single_prompt(&client, &config, &model, &prompt, streaming).await?;
         }
 
-        Commands::Config { show, init, set } => {
+        Commands::Config { show: _, init, set } => {
             if init {
                 init_config()?;
             } else if let Some(key_value) = set {
                 set_config_value(&key_value)?;
-            } else if show || true {
+            } else {
                 show_config(&config)?;
             }
         }
 
         Commands::Models => {
             // Health check
-            if let Err(e) = client.health_check().await {
-                return Err(e);
-            }
+            client.health_check().await?;
 
             list_models(&client).await?;
         }
 
         Commands::Test { filter, model } => {
             // Health check
-            if let Err(e) = client.health_check().await {
-                return Err(e);
-            }
+            client.health_check().await?;
 
             run_tests(&client, &config, &cli, filter.as_deref(), model.as_deref()).await?;
         }
@@ -178,11 +173,7 @@ async fn get_model(cli: &Cli, config: &Config, client: &OllamaClient) -> Result<
 fn show_config(config: &Config) -> Result<()> {
     println!("{}", style("Current Configuration:").cyan().bold());
     println!();
-    println!(
-        "  {} {}",
-        style("Ollama host:").dim(),
-        config.ollama_host
-    );
+    println!("  {} {}", style("Ollama host:").dim(), config.ollama_host);
     println!(
         "  {} {}",
         style("Default model:").dim(),
@@ -193,11 +184,7 @@ fn show_config(config: &Config) -> Result<()> {
         style("Context limit:").dim(),
         config.context_limit
     );
-    println!(
-        "  {} {}",
-        style("Streaming:").dim(),
-        config.ui.streaming
-    );
+    println!("  {} {}", style("Streaming:").dim(), config.ui.streaming);
     println!(
         "  {} {}",
         style("Auto-apply file ops:").dim(),
@@ -232,11 +219,7 @@ fn show_config(config: &Config) -> Result<()> {
 fn init_config() -> Result<()> {
     let config = Config::default();
     config.save()?;
-    println!(
-        "{} {}",
-        style("✓").green(),
-        "Created .slab/config.toml"
-    );
+    println!("{} Created .slab/config.toml", style("✓").green());
     Ok(())
 }
 
@@ -256,19 +239,19 @@ fn set_config_value(key_value: &str) -> Result<()> {
         "ollama_host" => config.ollama_host = value.to_string(),
         "default_model" => config.default_model = Some(value.to_string()),
         "context_limit" => {
-            config.context_limit = value.parse().map_err(|_| {
-                SlabError::ConfigError("Invalid context_limit value".to_string())
-            })?;
+            config.context_limit = value
+                .parse()
+                .map_err(|_| SlabError::ConfigError("Invalid context_limit value".to_string()))?;
         }
         "ui.streaming" => {
-            config.ui.streaming = value.parse().map_err(|_| {
-                SlabError::ConfigError("Invalid boolean value".to_string())
-            })?;
+            config.ui.streaming = value
+                .parse()
+                .map_err(|_| SlabError::ConfigError("Invalid boolean value".to_string()))?;
         }
         "ui.auto_apply_file_ops" => {
-            config.ui.auto_apply_file_ops = value.parse().map_err(|_| {
-                SlabError::ConfigError("Invalid boolean value".to_string())
-            })?;
+            config.ui.auto_apply_file_ops = value
+                .parse()
+                .map_err(|_| SlabError::ConfigError("Invalid boolean value".to_string()))?;
         }
         _ => {
             return Err(SlabError::ConfigError(format!(
@@ -279,12 +262,7 @@ fn set_config_value(key_value: &str) -> Result<()> {
     }
 
     config.save()?;
-    println!(
-        "{} Set {} = {}",
-        style("✓").green(),
-        key,
-        value
-    );
+    println!("{} Set {} = {}", style("✓").green(), key, value);
     Ok(())
 }
 
@@ -343,7 +321,11 @@ async fn init_project(client: &OllamaClient) -> Result<()> {
                         } else {
                             format!("{} MB", size_mb)
                         };
-                        println!("    {} {}", style(&model.name).yellow(), style(size_str).dim());
+                        println!(
+                            "    {} {}",
+                            style(&model.name).yellow(),
+                            style(size_str).dim()
+                        );
                     }
                     // Use the first model as default
                     Some(models[0].name.clone())
@@ -437,10 +419,7 @@ tags:
     println!("    .slab/tests/basic.yaml");
     println!("    .slab/sessions/");
     println!();
-    println!(
-        "{}",
-        style("Run 'slab chat' to start chatting!").cyan()
-    );
+    println!("{}", style("Run 'slab chat' to start chatting!").cyan());
 
     Ok(())
 }
@@ -464,7 +443,8 @@ async fn run_tests(
         m.clone()
     } else {
         let models = client.list_models().await?;
-        models.first()
+        models
+            .first()
             .map(|m| m.name.clone())
             .ok_or(SlabError::NoModelsAvailable)?
     };
@@ -483,10 +463,7 @@ async fn run_tests(
     }
 
     if all_tests.is_empty() {
-        println!(
-            "{}",
-            style("No test files found.").yellow()
-        );
+        println!("{}", style("No test files found.").yellow());
         println!(
             "{}",
             style("Create tests in tests/prompt_tests/*.yaml or .slab/tests/*.yaml").dim()
@@ -534,10 +511,7 @@ fn print_error(error: &SlabError) {
         SlabError::NoModelsAvailable => {
             eprintln!();
             eprintln!("{}", style("Suggestions:").yellow());
-            eprintln!(
-                "  Pull a model: {}",
-                style("ollama pull qwen2.5:7b").cyan()
-            );
+            eprintln!("  Pull a model: {}", style("ollama pull qwen2.5:7b").cyan());
         }
         SlabError::ModelNotFound(model) => {
             eprintln!();

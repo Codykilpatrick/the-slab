@@ -66,8 +66,7 @@ impl Session {
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize session: {}", e))?;
 
-        fs::write(&path, json)
-            .map_err(|e| format!("Failed to write session file: {}", e))?;
+        fs::write(&path, json).map_err(|e| format!("Failed to write session file: {}", e))?;
 
         // Update the "last" marker
         if let Some(last_path) = Self::last_session_path() {
@@ -82,11 +81,10 @@ impl Session {
         let path = Self::session_path(name)
             .ok_or_else(|| "Could not determine session path".to_string())?;
 
-        let content = fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read session file: {}", e))?;
+        let content =
+            fs::read_to_string(&path).map_err(|e| format!("Failed to read session file: {}", e))?;
 
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse session: {}", e))
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse session: {}", e))
     }
 
     /// Load the last used session
@@ -94,8 +92,8 @@ impl Session {
         let last_path = Self::last_session_path()
             .ok_or_else(|| "Could not determine last session path".to_string())?;
 
-        let name = fs::read_to_string(&last_path)
-            .map_err(|_| "No previous session found".to_string())?;
+        let name =
+            fs::read_to_string(&last_path).map_err(|_| "No previous session found".to_string())?;
 
         Self::load(name.trim())
     }
@@ -128,8 +126,7 @@ impl Session {
         let path = Self::session_path(name)
             .ok_or_else(|| "Could not determine session path".to_string())?;
 
-        fs::remove_file(&path)
-            .map_err(|e| format!("Failed to delete session: {}", e))
+        fs::remove_file(&path).map_err(|e| format!("Failed to delete session: {}", e))
     }
 
     /// Update the timestamp
