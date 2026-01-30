@@ -158,9 +158,14 @@ impl CompletionEngine {
             // Completing an argument
             let command = &without_slash[..space_idx];
             let arg_input = without_slash[space_idx..].trim_start();
+            let command_prefix = format!("/{} ", command);
 
             if let Some(completer) = self.command_completers.get(command) {
                 let mut completions = completer.complete(arg_input, context);
+                // Prepend the command to each completion so the full text is returned
+                for completion in &mut completions {
+                    completion.text = format!("{}{}", command_prefix, completion.text);
+                }
                 self.apply_fuzzy_scoring(&mut completions, arg_input);
                 self.sort_completions(&mut completions);
                 return completions;

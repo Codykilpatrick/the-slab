@@ -284,11 +284,15 @@ impl Repl {
                                 stdout.flush().ok();
                             } else if !completions.is_empty() {
                                 // Multiple matches - show completion menu
+                                // Disable raw mode for proper menu display
+                                crossterm::terminal::disable_raw_mode().ok();
                                 println!();
                                 self.show_completion_menu(&completions);
                                 self.print_prompt();
                                 print!("{}", input);
                                 stdout.flush().ok();
+                                // Re-enable raw mode
+                                crossterm::terminal::enable_raw_mode().ok();
                             }
                         }
                         // Backspace
@@ -337,22 +341,15 @@ impl Repl {
 
     /// Clear the preview text (spaces over it)
     fn clear_preview(&self, len: usize) {
-        // Move forward, overwrite with spaces, move back
+        use std::io::Write;
+        // Overwrite preview with spaces, then move cursor back
         for _ in 0..len {
             print!(" ");
         }
         for _ in 0..len {
             print!("\x08");
         }
-        for _ in 0..len {
-            print!("\x08");
-        }
-        for _ in 0..len {
-            print!(" ");
-        }
-        for _ in 0..len {
-            print!("\x08");
-        }
+        std::io::stdout().flush().ok();
     }
 
     /// Get the inline preview text (the part to show dimmed after cursor)
