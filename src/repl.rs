@@ -284,11 +284,15 @@ impl Repl {
                                 stdout.flush().ok();
                             } else if !completions.is_empty() {
                                 // Multiple matches - show completion menu
+                                // Temporarily disable raw mode for proper newlines
+                                crossterm::terminal::disable_raw_mode().ok();
                                 println!();
                                 self.show_completion_menu(&completions);
                                 self.print_prompt();
                                 print!("{}", input);
                                 stdout.flush().ok();
+                                // Re-enable raw mode for input handling
+                                crossterm::terminal::enable_raw_mode().ok();
                             }
                         }
                         // Backspace
@@ -411,7 +415,7 @@ impl Repl {
 
         if completions.len() > max_items {
             println!(
-                "│ {} {}",
+                "│ {} {}│",
                 style("...").dim(),
                 style(format!("and {} more", completions.len() - max_items)).dim()
             );
@@ -467,14 +471,14 @@ impl Repl {
         if let Some(d) = desc {
             let truncated: String = d.chars().take(30).collect();
             println!(
-                "│{} {} {} {}",
+                "│{} {} {} {}│",
                 style(prefix).cyan(),
                 icon,
                 text_styled,
                 style(truncated).dim()
             );
         } else {
-            println!("│{} {} {}", style(prefix).cyan(), icon, text_styled);
+            println!("│{} {} {}│", style(prefix).cyan(), icon, text_styled);
         }
     }
 
@@ -520,7 +524,7 @@ impl Repl {
         }
         if completions.len() > max_items {
             println!(
-                "│ {} {}",
+                "│ {} {}│",
                 style("...").dim(),
                 style(format!("and {} more", completions.len() - max_items)).dim()
             );
