@@ -1,0 +1,10 @@
+ollama_host = "http://localhost:11434"
+context_limit = 32768
+
+[models]
+
+[paths]
+
+[ui]
+theme = "dark"
+streaming = true

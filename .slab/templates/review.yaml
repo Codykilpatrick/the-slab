@@ -1,0 +1,16 @@
+name: code_review
+command: /review
+description: Review code for issues and improvements
+variables:
+  - name: focus
+    default: all
+prompt: |
+  Review the following code, focusing on {{focus}}:
+
+  {{content}}
+
+  Please identify:
+  1. Potential bugs or issues
+  2. Performance concerns
+  3. Style/readability improvements
+  4. Security considerations
