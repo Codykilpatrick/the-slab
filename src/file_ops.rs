@@ -24,6 +24,7 @@ pub enum FileOperation {
         path: PathBuf,
         original_content: Option<String>,
     },
+    #[allow(dead_code)]
     Rename {
         from: PathBuf,
         to: PathBuf,
@@ -168,6 +169,7 @@ impl FileOperation {
     }
 
     /// Create a rollback operation (inverse of this operation)
+    #[allow(dead_code)]
     pub fn rollback(&self) -> Option<FileOperation> {
         match self {
             FileOperation::Create { path, .. } => Some(FileOperation::Delete {
@@ -411,6 +413,7 @@ fn parse_code_block_header(header: &str) -> (Option<String>, Option<PathBuf>) {
 
 /// Interactive confirmation UI for file operations
 pub struct FileOperationUI {
+    #[allow(dead_code)]
     term: Term,
 }
 

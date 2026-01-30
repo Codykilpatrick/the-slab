@@ -134,6 +134,7 @@ impl TemplateManager {
     }
 
     /// List template commands
+    #[allow(dead_code)]
     pub fn commands(&self) -> Vec<String> {
         self.templates
             .values()
@@ -399,6 +400,7 @@ Include:
 }
 
 /// Write default templates to a directory
+#[allow(dead_code)]
 pub fn write_default_templates(dir: &Path) -> Result<(), String> {
     fs::create_dir_all(dir)
         .map_err(|e| format!("Failed to create templates directory: {}", e))?;

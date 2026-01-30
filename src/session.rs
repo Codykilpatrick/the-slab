@@ -101,6 +101,7 @@ impl Session {
     }
 
     /// List all available sessions
+    #[allow(dead_code)]
     pub fn list() -> Vec<String> {
         let mut sessions = Vec::new();
 
@@ -122,6 +123,7 @@ impl Session {
     }
 
     /// Delete a session
+    #[allow(dead_code)]
     pub fn delete(name: &str) -> Result<(), String> {
         let path = Self::session_path(name)
             .ok_or_else(|| "Could not determine session path".to_string())?;
@@ -131,6 +133,7 @@ impl Session {
     }
 
     /// Update the timestamp
+    #[allow(dead_code)]
     pub fn touch(&mut self) {
         self.updated_at = chrono::Local::now().to_rfc3339();
     }

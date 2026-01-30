@@ -1,6 +1,6 @@
 use console::style;
 use syntect::easy::HighlightLines;
-use syntect::highlighting::{Style, ThemeSet};
+use syntect::highlighting::ThemeSet;
 use syntect::parsing::SyntaxSet;
 use syntect::util::as_24_bit_terminal_escaped;
 
@@ -76,7 +76,7 @@ impl Highlighter {
                     current_lang = line[3..].trim().to_string();
                     // Strip filename if present (e.g., "rust:src/main.rs" -> "rust")
                     if let Some(colon_pos) = current_lang.find(':') {
-                        let (lang, path) = current_lang.split_at(colon_pos);
+                        let (lang, _path) = current_lang.split_at(colon_pos);
                         result.push_str(&format!(
                             "{} {}\n",
                             style(&current_lang[..colon_pos]).cyan(),

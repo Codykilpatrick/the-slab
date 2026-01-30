@@ -28,6 +28,7 @@ pub struct Repl {
     project_root: PathBuf,
     file_ops_enabled: bool,
     history: Vec<String>,
+    #[allow(dead_code)]
     history_index: usize,
 }
 

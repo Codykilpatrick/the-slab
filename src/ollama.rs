@@ -50,6 +50,7 @@ pub struct GenerateRequest {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct ChatResponse {
     pub message: Option<Message>,
     pub done: bool,
@@ -60,6 +61,7 @@ pub struct ChatResponse {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct GenerateResponse {
     pub response: String,
     pub done: bool,
@@ -75,6 +77,7 @@ pub struct TagsResponse {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct ModelInfo {
     pub name: String,
     pub modified_at: String,
@@ -84,6 +87,7 @@ pub struct ModelInfo {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct ModelDetails {
     pub family: Option<String>,
     pub parameter_size: Option<String>,
@@ -231,6 +235,7 @@ impl OllamaClient {
     }
 
     /// Send a generate request (single prompt, not chat)
+    #[allow(dead_code)]
     pub async fn generate(&self, request: GenerateRequest) -> Result<String> {
         let url = format!("{}/api/generate", self.base_url);
         let mut req = request;

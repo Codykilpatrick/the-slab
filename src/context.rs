@@ -168,6 +168,7 @@ impl ContextManager {
     }
 
     /// Check if a file is in context
+    #[allow(dead_code)]
     pub fn has_file(&self, path: impl AsRef<Path>) -> bool {
         self.files.contains_key(path.as_ref())
     }
@@ -193,6 +194,7 @@ impl ContextManager {
     }
 
     /// Clear everything except system prompt
+    #[allow(dead_code)]
     pub fn clear_all(&mut self) {
         self.files.clear();
         self.messages.clear();
@@ -258,23 +260,27 @@ impl ContextManager {
     }
 
     /// Get token budget
+    #[allow(dead_code)]
     pub fn token_budget(&self) -> usize {
         self.token_budget
     }
 
     /// Get remaining token budget
+    #[allow(dead_code)]
     pub fn tokens_remaining(&self) -> usize {
         let used = self.token_count();
         self.token_budget.saturating_sub(used)
     }
 
     /// Check if context is over budget
+    #[allow(dead_code)]
     pub fn is_over_budget(&self) -> bool {
         self.token_count() > self.token_budget
     }
 
     /// Prune old messages to fit within token budget
     /// Keeps system prompt and recent messages, removes oldest user/assistant pairs
+    #[allow(dead_code)]
     pub fn prune_to_fit(&mut self) {
         while self.is_over_budget() && self.messages.len() > 2 {
             // Remove the oldest user message and its response
