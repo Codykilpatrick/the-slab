@@ -261,7 +261,9 @@ impl Repl {
             print!(
                 "{}{} {}{}{}",
                 self.theme.muted.apply_to("["),
-                self.theme.secondary.apply_to(format!("{}f", summary.files_count)),
+                self.theme
+                    .secondary
+                    .apply_to(format!("{}f", summary.files_count)),
                 self.theme.muted.apply_to("|"),
                 self.theme.muted.apply_to(&token_info),
                 self.theme.muted.apply_to("] ")

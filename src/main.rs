@@ -231,11 +231,7 @@ fn show_config(config: &Config) -> Result<()> {
         style("Code block style:").dim(),
         config.ui.code_block_style
     );
-    println!(
-        "  {} {}",
-        style("Diff style:").dim(),
-        config.ui.diff_style
-    );
+    println!("  {} {}", style("Diff style:").dim(), config.ui.diff_style);
 
     if !config.models.is_empty() {
         println!();

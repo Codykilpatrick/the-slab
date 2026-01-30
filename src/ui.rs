@@ -64,10 +64,7 @@ impl BoxRenderer {
         let mut output = String::new();
 
         // Top border with title
-        output.push_str(&format!(
-            "{}",
-            self.theme.border.apply_to(chars.top_left)
-        ));
+        output.push_str(&format!("{}", self.theme.border.apply_to(chars.top_left)));
 
         if let Some(t) = title {
             let title_str = format!(" {} ", t);
@@ -100,14 +97,9 @@ impl BoxRenderer {
 
         // Content lines
         for line in content.lines() {
-            output.push_str(&format!(
-                "{} ",
-                self.theme.border.apply_to(chars.vertical)
-            ));
+            output.push_str(&format!("{} ", self.theme.border.apply_to(chars.vertical)));
             output.push_str(line);
-            output.push_str(&format!(
-                "\n"
-            ));
+            output.push_str(&format!("\n"));
         }
 
         // Bottom border
@@ -133,10 +125,7 @@ impl BoxRenderer {
         let mut output = String::new();
 
         // Top border with styled title
-        output.push_str(&format!(
-            "{}",
-            self.theme.border.apply_to(chars.top_left)
-        ));
+        output.push_str(&format!("{}", self.theme.border.apply_to(chars.top_left)));
 
         let title_str = format!(" {} ", title);
         let title_len = title_str.len();
