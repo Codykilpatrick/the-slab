@@ -16,6 +16,8 @@ use crate::ollama::{ChatRequest, Message, ModelOptions, OllamaClient};
 use crate::rules::RuleEngine;
 use crate::session::Session;
 use crate::templates::TemplateManager;
+use crate::theme::{BoxStyle, Theme, ThemeName};
+use crate::ui::{terminal_width, BoxRenderer};
 
 pub struct Repl {
     client: OllamaClient,
@@ -33,6 +35,8 @@ pub struct Repl {
     cached_models: Option<Vec<String>>,
     #[allow(dead_code)]
     history_index: usize,
+    theme: Theme,
+    box_style: BoxStyle,
 }
 
 impl Repl {
@@ -82,6 +86,10 @@ impl Repl {
             .collect();
         completion_engine.add_template_commands(template_cmds);
 
+        // Load theme from config
+        let theme = ThemeName::from_str(&config.ui.theme).to_theme();
+        let box_style = BoxStyle::from_str(&config.ui.box_style);
+
         Self {
             client,
             config,
@@ -97,6 +105,8 @@ impl Repl {
             history: Vec::new(),
             cached_models: None,
             history_index: 0,
+            theme,
+            box_style,
         }
     }
 
@@ -144,14 +154,90 @@ impl Repl {
     }
 
     fn print_welcome(&self) {
+        // Show ASCII banner if enabled
+        if self.config.ui.show_banner {
+            println!(
+                "{}",
+                self.theme.primary.apply_to(
+                    r#"
+ _____ _       ___ _       _
+|_   _| |_  __|  _| |__ _ | |__
+  | | | ' \/ -_)__ \ / _` || '_ \
+  |_| |_||_\___|___/_\__,_||_.__/
+"#
+                )
+            );
+        }
+
+        // Show status bar if enabled
+        if self.config.ui.show_status_bar {
+            self.print_status_bar();
+        } else {
+            // Simple welcome message
+            println!(
+                "{} {} {}",
+                self.theme.primary.apply_to("The Slab"),
+                self.theme.muted.apply_to("·"),
+                self.theme.warning.apply_to(&self.model)
+            );
+        }
+
         println!(
-            "{} {} {}",
-            style("The Slab").cyan().bold(),
-            style("·").dim(),
-            style(&self.model).yellow()
+            "{}",
+            self.theme
+                .muted
+                .apply_to("Type /help for commands, /exit to quit")
         );
-        println!("{}", style("Type /help for commands, /exit to quit").dim());
         println!();
+    }
+
+    fn print_status_bar(&self) {
+        let width = terminal_width().min(80);
+        let chars = self.box_style.chars();
+        let summary = self.context.summary();
+
+        // Build status content
+        let model_str = format!(" Model: {} ", self.model);
+        let context_str = format!(
+            " Context: {}f | {}t ",
+            summary.files_count, summary.tokens_used
+        );
+
+        let content_len = model_str.len() + context_str.len() + 3; // +3 for separators
+        let padding = width.saturating_sub(content_len + 2);
+
+        // Top border
+        println!(
+            "{}{}{}{}{}",
+            self.theme.border.apply_to(chars.top_left),
+            self.theme.border.apply_to(chars.horizontal),
+            self.theme.primary.apply_to(" The Slab "),
+            self.theme.border.apply_to(
+                std::iter::repeat_n(chars.horizontal, width.saturating_sub(13)).collect::<String>()
+            ),
+            self.theme.border.apply_to(chars.top_right)
+        );
+
+        // Content line
+        println!(
+            "{} {}{}{}{}{}",
+            self.theme.border.apply_to(chars.vertical),
+            self.theme.warning.apply_to(&model_str),
+            self.theme.border.apply_to(chars.vertical),
+            self.theme.secondary.apply_to(&context_str),
+            " ".repeat(padding),
+            self.theme.border.apply_to(chars.vertical)
+        );
+
+        // Bottom border
+        println!(
+            "{}{}{}",
+            self.theme.border.apply_to(chars.bottom_left),
+            self.theme.border.apply_to(
+                std::iter::repeat_n(chars.horizontal, width.saturating_sub(2)).collect::<String>()
+            ),
+            self.theme.border.apply_to(chars.bottom_right)
+        );
     }
 
     fn print_prompt(&self) {
@@ -160,24 +246,26 @@ impl Repl {
 
         print!(
             "{}{}{} ",
-            style("[").dim(),
-            style(&self.model).yellow(),
-            style("]").dim()
+            self.theme.muted.apply_to("["),
+            self.theme.warning.apply_to(&self.model),
+            self.theme.muted.apply_to("]")
         );
 
         // Show file count and tokens if there are files
         if summary.files_count > 0 {
             print!(
                 "{}{} {}{}{}",
-                style("[").dim(),
-                style(format!("{}f", summary.files_count)).cyan(),
-                style("|").dim(),
-                style(&token_info).dim(),
-                style("] ").dim()
+                self.theme.muted.apply_to("["),
+                self.theme
+                    .secondary
+                    .apply_to(format!("{}f", summary.files_count)),
+                self.theme.muted.apply_to("|"),
+                self.theme.muted.apply_to(&token_info),
+                self.theme.muted.apply_to("] ")
             );
         }
 
-        print!("{} ", style("➜").cyan());
+        print!("{} ", self.theme.primary.apply_to("❯"));
         io::stdout().flush().ok();
     }
 
@@ -408,7 +496,7 @@ impl Repl {
 
         if completions.len() > max_items {
             println!(
-                "│ {} {}",
+                "│ {} {}│",
                 style("...").dim(),
                 style(format!("and {} more", completions.len() - max_items)).dim()
             );
@@ -464,14 +552,14 @@ impl Repl {
         if let Some(d) = desc {
             let truncated: String = d.chars().take(30).collect();
             println!(
-                "│{} {} {} {}",
+                "│{} {} {} {}│",
                 style(prefix).cyan(),
                 icon,
                 text_styled,
                 style(truncated).dim()
             );
         } else {
-            println!("│{} {} {}", style(prefix).cyan(), icon, text_styled);
+            println!("│{} {} {}│", style(prefix).cyan(), icon, text_styled);
         }
     }
 
@@ -517,7 +605,7 @@ impl Repl {
         }
         if completions.len() > max_items {
             println!(
-                "│ {} {}",
+                "│ {} {}│",
                 style("...").dim(),
                 style(format!("and {} more", completions.len() - max_items)).dim()
             );
@@ -949,60 +1037,89 @@ impl Repl {
     }
 
     fn print_help(&self) {
-        println!("{}", style("Built-in commands:").cyan().bold());
-        println!("  {}  - Show this help", style("/help").green());
-        println!("  {}  - Exit the REPL", style("/exit").green());
-        println!("  {} - Clear conversation", style("/clear").green());
-        println!(
-            "  {} - Show/set current model",
-            style("/model [name]").green()
-        );
-        println!("  {} - Show context summary", style("/context").green());
-        println!("  {} - Show token usage", style("/tokens").green());
-        println!("  {} - List files in context", style("/files").green());
-        println!(
-            "  {} - Add file or directory to context",
-            style("/add <path>").green()
-        );
-        println!(
-            "  {} - Remove file from context",
-            style("/remove <file>").green()
-        );
-        println!(
-            "  {} - Toggle file operations",
-            style("/fileops [on|off]").green()
-        );
-        println!(
-            "  {} - List available templates",
-            style("/templates").green()
-        );
-        println!("  {} - Show loaded rules", style("/rules").green());
+        let width = terminal_width().min(70);
+        let renderer = BoxRenderer::new(self.box_style, self.theme.clone()).with_width(width);
+
+        // Built-in commands section
+        let commands = [
+            ("/help", "Show this help"),
+            ("/exit", "Exit the REPL"),
+            ("/clear", "Clear conversation"),
+            ("/model [name]", "Show/set current model"),
+            ("/context", "Show context summary"),
+            ("/tokens", "Show token usage"),
+            ("/files", "List files in context"),
+            ("/add <path>", "Add file/directory to context"),
+            ("/remove <file>", "Remove file from context"),
+            ("/fileops [on|off]", "Toggle file operations"),
+            ("/templates", "List available templates"),
+            ("/rules", "Show loaded rules"),
+        ];
+
+        let mut content = String::new();
+        for (cmd, desc) in commands {
+            content.push_str(&format!(
+                "  {} - {}\n",
+                self.theme.success.apply_to(format!("{:<16}", cmd)),
+                self.theme.muted.apply_to(desc)
+            ));
+        }
+        // Remove trailing newline
+        content.pop();
+
+        print!("{}", renderer.render_titled_box(Some("Commands"), &content));
 
         // Show template commands
         let templates = self.templates.list();
         if !templates.is_empty() {
             println!();
-            println!("{}", style("Template commands:").cyan().bold());
+            let mut template_content = String::new();
             for t in templates {
-                println!(
-                    "  {} - {}",
-                    style(&t.command).green(),
-                    style(&t.description).dim()
-                );
+                template_content.push_str(&format!(
+                    "  {} - {}\n",
+                    self.theme.success.apply_to(format!("{:<16}", t.command)),
+                    self.theme.muted.apply_to(&t.description)
+                ));
             }
+            template_content.pop();
+            print!(
+                "{}",
+                renderer.render_titled_box(Some("Templates"), &template_content)
+            );
         }
 
+        // Keyboard shortcuts
         println!();
-        println!("{}", style("Keyboard shortcuts:").cyan().bold());
-        println!("  {} - Cancel current input", style("Ctrl+C").yellow());
-        println!("  {} - Exit", style("Ctrl+D").yellow());
-        println!("  {} - Clear screen", style("Ctrl+L").yellow());
-        println!("  {} - Navigate command history", style("Up/Down").yellow());
-        println!("  {} - Autocomplete commands", style("Tab").yellow());
+        let shortcuts = [
+            ("Ctrl+C", "Cancel current input"),
+            ("Ctrl+D", "Exit"),
+            ("Ctrl+L", "Clear screen"),
+            ("Up/Down", "Navigate command history"),
+            ("Tab", "Autocomplete commands"),
+            ("Right", "Accept inline preview"),
+        ];
+
+        let mut shortcut_content = String::new();
+        for (key, desc) in shortcuts {
+            shortcut_content.push_str(&format!(
+                "  {} - {}\n",
+                self.theme.warning.apply_to(format!("{:<10}", key)),
+                self.theme.muted.apply_to(desc)
+            ));
+        }
+        shortcut_content.pop();
+
+        print!(
+            "{}",
+            renderer.render_titled_box(Some("Shortcuts"), &shortcut_content)
+        );
+
         println!();
         println!(
             "{}",
-            style("Type /help <command> for detailed command help.").dim()
+            self.theme
+                .muted
+                .apply_to("Type /help <command> for detailed command help.")
         );
         println!();
     }

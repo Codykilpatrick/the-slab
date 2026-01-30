@@ -54,3 +54,8 @@ serde_yaml = "0.9"
 
 # Rules & Testing (Phase 4)
 regex = "1"
+
+# Visual enhancements (Phase 5)
+unicode-width = "0.1"
+textwrap = "0.16"
+terminal_size = "0.4"

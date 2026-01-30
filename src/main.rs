@@ -11,6 +11,8 @@ mod rules;
 mod session;
 mod templates;
 mod testing;
+mod theme;
+mod ui;
 
 use clap::Parser;
 use console::style;
@@ -21,6 +23,8 @@ use config::Config;
 use error::{Result, SlabError};
 use ollama::OllamaClient;
 use repl::Repl;
+use theme::{BoxStyle, ThemeName};
+use ui::BoxRenderer;
 
 #[tokio::main]
 async fn main() {
@@ -210,6 +214,24 @@ fn show_config(config: &Config) -> Result<()> {
         style("Max completions:").dim(),
         config.ui.max_completion_items
     );
+    println!("  {} {}", style("Theme:").dim(), config.ui.theme);
+    println!("  {} {}", style("Box style:").dim(), config.ui.box_style);
+    println!(
+        "  {} {}",
+        style("Show status bar:").dim(),
+        config.ui.show_status_bar
+    );
+    println!(
+        "  {} {}",
+        style("Show banner:").dim(),
+        config.ui.show_banner
+    );
+    println!(
+        "  {} {}",
+        style("Code block style:").dim(),
+        config.ui.code_block_style
+    );
+    println!("  {} {}", style("Diff style:").dim(), config.ui.diff_style);
 
     if !config.models.is_empty() {
         println!();
@@ -287,6 +309,28 @@ fn set_config_value(key_value: &str) -> Result<()> {
             config.ui.max_completion_items = value
                 .parse()
                 .map_err(|_| SlabError::ConfigError("Invalid number value".to_string()))?;
+        }
+        "ui.theme" => {
+            config.ui.theme = value.to_string();
+        }
+        "ui.box_style" => {
+            config.ui.box_style = value.to_string();
+        }
+        "ui.show_status_bar" => {
+            config.ui.show_status_bar = value
+                .parse()
+                .map_err(|_| SlabError::ConfigError("Invalid boolean value".to_string()))?;
+        }
+        "ui.show_banner" => {
+            config.ui.show_banner = value
+                .parse()
+                .map_err(|_| SlabError::ConfigError("Invalid boolean value".to_string()))?;
+        }
+        "ui.code_block_style" => {
+            config.ui.code_block_style = value.to_string();
+        }
+        "ui.diff_style" => {
+            config.ui.diff_style = value.to_string();
         }
         _ => {
             return Err(SlabError::ConfigError(format!(
@@ -595,36 +639,45 @@ async fn run_tests(
 }
 
 fn print_error(error: &SlabError) {
-    eprintln!("{} {}", style("Error:").red().bold(), error);
+    // Use default theme for error display
+    let theme = ThemeName::Default.to_theme();
+    let renderer = BoxRenderer::new(BoxStyle::Rounded, theme.clone()).with_width(60);
 
-    // Provide helpful suggestions
-    match error {
-        SlabError::OllamaNotRunning(_) => {
-            eprintln!();
-            eprintln!("{}", style("Suggestions:").yellow());
-            eprintln!("  1. Start Ollama: {}", style("ollama serve").cyan());
-            eprintln!(
-                "  2. Check if it's running: {}",
+    // Build error content with suggestions
+    let mut content = format!("{}", error);
+
+    // Add helpful suggestions based on error type
+    let suggestions = match error {
+        SlabError::OllamaNotRunning(_) => Some(vec![
+            format!("Start Ollama: {}", style("ollama serve").cyan()),
+            format!(
+                "Check status: {}",
                 style("curl http://localhost:11434/api/tags").cyan()
-            );
-        }
-        SlabError::NoModelsAvailable => {
-            eprintln!();
-            eprintln!("{}", style("Suggestions:").yellow());
-            eprintln!("  Pull a model: {}", style("ollama pull qwen2.5:7b").cyan());
-        }
-        SlabError::ModelNotFound(model) => {
-            eprintln!();
-            eprintln!("{}", style("Suggestions:").yellow());
-            eprintln!(
-                "  1. Pull the model: {}",
+            ),
+        ]),
+        SlabError::NoModelsAvailable => Some(vec![format!(
+            "Pull a model: {}",
+            style("ollama pull qwen2.5:7b").cyan()
+        )]),
+        SlabError::ModelNotFound(model) => Some(vec![
+            format!(
+                "Pull the model: {}",
                 style(format!("ollama pull {}", model)).cyan()
-            );
-            eprintln!(
-                "  2. List available models: {}",
-                style("slab models").cyan()
-            );
+            ),
+            format!("List available: {}", style("slab models").cyan()),
+        ]),
+        _ => None,
+    };
+
+    if let Some(suggestions) = suggestions {
+        content.push_str("\n\nSuggestions:");
+        for (i, s) in suggestions.iter().enumerate() {
+            content.push_str(&format!("\n  {}. {}", i + 1, s));
         }
-        _ => {}
     }
+
+    eprint!(
+        "{}",
+        renderer.render_styled_box("Error", &content, &theme.error)
+    );
 }

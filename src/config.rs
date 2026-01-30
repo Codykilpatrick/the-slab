@@ -75,6 +75,26 @@ pub struct UiConfig {
     /// Maximum number of items to show in completion menu
     #[serde(default = "default_max_completions")]
     pub max_completion_items: usize,
+
+    /// Box drawing style: "rounded", "sharp", "double", "ascii", "heavy"
+    #[serde(default = "default_box_style")]
+    pub box_style: String,
+
+    /// Show status bar at top of REPL
+    #[serde(default = "default_true")]
+    pub show_status_bar: bool,
+
+    /// Show ASCII banner on startup
+    #[serde(default)]
+    pub show_banner: bool,
+
+    /// Code block style: "bordered" or "plain"
+    #[serde(default = "default_code_block_style")]
+    pub code_block_style: String,
+
+    /// Diff style: "unified" or "side-by-side"
+    #[serde(default = "default_diff_style")]
+    pub diff_style: String,
 }
 
 impl Default for UiConfig {
@@ -86,6 +106,11 @@ impl Default for UiConfig {
             inline_completion_preview: true,
             fuzzy_completion: true,
             max_completion_items: 10,
+            box_style: default_box_style(),
+            show_status_bar: true,
+            show_banner: false,
+            code_block_style: default_code_block_style(),
+            diff_style: default_diff_style(),
         }
     }
 }
@@ -115,11 +140,23 @@ fn default_top_p() -> f32 {
 }
 
 fn default_theme() -> String {
-    "dark".to_string()
+    "default".to_string()
 }
 
 fn default_streaming() -> bool {
     true
+}
+
+fn default_box_style() -> String {
+    "rounded".to_string()
+}
+
+fn default_code_block_style() -> String {
+    "bordered".to_string()
+}
+
+fn default_diff_style() -> String {
+    "unified".to_string()
 }
 
 fn default_system_prompt() -> String {
