@@ -18,6 +18,9 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact: slab-linux-x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            artifact: slab-linux-x86_64-musl
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact: slab-macos-x86_64
@@ -27,6 +30,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install musl tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

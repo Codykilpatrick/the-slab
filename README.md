@@ -16,7 +16,9 @@
 - [Table of Contents](#table-of-contents)
 - [Features](#features)
 - [Installation](#installation)
+  - [Pre-built Binaries](#pre-built-binaries)
   - [From Source](#from-source)
+    - [Building for Air-gapped Environments (musl)](#building-for-air-gapped-environments-musl)
   - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [Usage](#usage)
@@ -66,6 +68,19 @@
 
 ## Installation
 
+### Pre-built Binaries
+
+Download from [GitHub Releases](https://github.com/yourusername/the-slab/releases):
+
+| Platform | Binary | Notes |
+|----------|--------|-------|
+| Linux x86_64 | `slab-linux-x86_64.tar.gz` | Requires glibc 2.31+ |
+| Linux x86_64 (static) | `slab-linux-x86_64-musl.tar.gz` | **Recommended for air-gapped environments** - no glibc dependency |
+| macOS x86_64 | `slab-macos-x86_64.tar.gz` | Intel Macs |
+| macOS ARM64 | `slab-macos-arm64.tar.gz` | Apple Silicon |
+
+> **Air-gapped environments**: Use the `-musl` build. It's a fully static binary with zero dynamic library dependencies, compatible with any Linux kernel 2.6.32+.
+
 ### From Source
 
 ```bash
@@ -79,6 +94,26 @@ cargo build --release
 # Install to your PATH (optional)
 cp target/release/slab ~/.local/bin/
 ```
+
+#### Building for Air-gapped Environments (musl)
+
+To build a static binary with no glibc dependency:
+
+```bash
+# Install musl toolchain (Ubuntu/Debian)
+sudo apt install musl-tools
+
+# Add the musl target
+rustup target add x86_64-unknown-linux-musl
+
+# Build static binary
+cargo build --release --target x86_64-unknown-linux-musl
+
+# The binary will be at:
+# target/x86_64-unknown-linux-musl/release/slab
+```
+
+This produces a fully static binary that works on any Linux system regardless of glibc version.
 
 ### Prerequisites
 
