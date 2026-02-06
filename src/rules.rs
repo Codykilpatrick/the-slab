@@ -110,9 +110,7 @@ impl RuleEngine {
         let rule: Rule =
             serde_yaml::from_str(&content).map_err(|e| format!("Failed to parse YAML: {}", e))?;
 
-        if rule.enabled {
-            self.rules.push(rule);
-        }
+        self.rules.push(rule);
 
         Ok(())
     }
@@ -122,9 +120,7 @@ impl RuleEngine {
         if let Ok(entries) = glob::glob(&pattern.to_string_lossy()) {
             for entry in entries.flatten() {
                 if let Ok(rule) = self.parse_markdown_rule(&entry) {
-                    if rule.enabled {
-                        self.rules.push(rule);
-                    }
+                    self.rules.push(rule);
                 }
             }
         }
@@ -256,6 +252,26 @@ impl RuleEngine {
     /// Get the number of loaded rules
     pub fn rule_count(&self) -> usize {
         self.rules.len()
+    }
+
+    /// Enable a rule by name. Returns true if the rule was found.
+    pub fn enable_rule(&mut self, name: &str) -> bool {
+        if let Some(rule) = self.rules.iter_mut().find(|r| r.name == name) {
+            rule.enabled = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Disable a rule by name. Returns true if the rule was found.
+    pub fn disable_rule(&mut self, name: &str) -> bool {
+        if let Some(rule) = self.rules.iter_mut().find(|r| r.name == name) {
+            rule.enabled = false;
+            true
+        } else {
+            false
+        }
     }
 }
 

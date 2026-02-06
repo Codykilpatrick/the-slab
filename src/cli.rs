@@ -50,12 +50,20 @@ pub enum Commands {
         /// Use a named session
         #[arg(long, short = 's')]
         session: Option<String>,
+
+        /// Add file(s) or directory to context
+        #[arg(short = 'f', long = "file")]
+        files: Vec<PathBuf>,
     },
 
     /// Run a single prompt and exit
     Run {
         /// The prompt to send
         prompt: String,
+
+        /// Add file(s) or directory to context
+        #[arg(short = 'f', long = "file")]
+        files: Vec<PathBuf>,
     },
 
     /// Show or edit configuration
@@ -114,6 +122,7 @@ impl Cli {
         self.command.clone().unwrap_or(Commands::Chat {
             r#continue: false,
             session: None,
+            files: Vec::new(),
         })
     }
 }
@@ -124,12 +133,15 @@ impl Clone for Commands {
             Commands::Chat {
                 r#continue,
                 session,
+                files,
             } => Commands::Chat {
                 r#continue: *r#continue,
                 session: session.clone(),
+                files: files.clone(),
             },
-            Commands::Run { prompt } => Commands::Run {
+            Commands::Run { prompt, files } => Commands::Run {
                 prompt: prompt.clone(),
+                files: files.clone(),
             },
             Commands::Config { show, init, set } => Commands::Config {
                 show: *show,

@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use regex::Regex;
+
 use crate::ollama::Message;
 
 /// Simple offline tokenizer using chars/4 approximation
@@ -53,6 +55,11 @@ impl ContextManager {
     /// Set the rules content
     pub fn set_rules(&mut self, rules: impl Into<String>) {
         self.rules = Some(rules.into());
+    }
+
+    /// Clear rules from context
+    pub fn clear_rules(&mut self) {
+        self.rules = None;
     }
 
     /// Add a file to the context
@@ -303,6 +310,64 @@ impl ContextManager {
         }
     }
 
+    /// Resolve a file reference (from an `@` mention) to a context file path.
+    ///
+    /// 1. Exact path match against context files
+    /// 2. Fallback to filename-only match if unambiguous
+    ///
+    /// Returns `None` if no match or ambiguous filename match.
+    pub fn resolve_file_reference(&self, reference: &str) -> Option<PathBuf> {
+        let ref_path = PathBuf::from(reference);
+
+        // 1. Exact path match
+        if self.files.contains_key(&ref_path) {
+            return Some(ref_path);
+        }
+
+        // 2. Filename-only match
+        let ref_filename = ref_path.file_name()?;
+        let matches: Vec<&PathBuf> = self
+            .files
+            .keys()
+            .filter(|p| p.file_name() == Some(ref_filename))
+            .collect();
+
+        if matches.len() == 1 {
+            Some(matches[0].clone())
+        } else {
+            None
+        }
+    }
+
+    /// Expand `@filename` references in a prompt with the file's content inlined.
+    ///
+    /// Patterns like `@src/main.rs` or `@main.rs` are replaced with a formatted
+    /// block containing the file content. Unresolved references are left unchanged.
+    pub fn expand_file_references(&self, input: &str) -> String {
+        let re = Regex::new(r"@([a-zA-Z0-9_\-./]+)").unwrap();
+
+        re.replace_all(input, |caps: &regex::Captures| {
+            let reference = &caps[1];
+            if let Some(resolved_path) = self.resolve_file_reference(reference) {
+                if let Some(content) = self.files.get(&resolved_path) {
+                    let ext = resolved_path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("txt");
+                    return format!(
+                        "[File: {}]\n```{}\n{}\n```",
+                        resolved_path.display(),
+                        ext,
+                        content
+                    );
+                }
+            }
+            // No match — leave the @reference unchanged
+            caps[0].to_string()
+        })
+        .into_owned()
+    }
+
     /// Get a summary of context state
     pub fn summary(&self) -> ContextSummary {
         ContextSummary {
@@ -349,6 +414,74 @@ mod tests {
         assert_eq!(messages[0].role, "system");
         assert_eq!(messages[1].role, "user");
         assert_eq!(messages[2].role, "assistant");
+    }
+
+    #[test]
+    fn test_expand_file_references_exact_path() {
+        let mut ctx = ContextManager::new(4096, PathBuf::from("."));
+        ctx.files
+            .insert(PathBuf::from("src/main.rs"), "fn main() {}".to_string());
+
+        let result = ctx.expand_file_references("explain @src/main.rs");
+        assert!(result.contains("[File: src/main.rs]"));
+        assert!(result.contains("fn main() {}"));
+        assert!(result.starts_with("explain "));
+    }
+
+    #[test]
+    fn test_expand_file_references_filename_only() {
+        let mut ctx = ContextManager::new(4096, PathBuf::from("."));
+        ctx.files
+            .insert(PathBuf::from("src/main.rs"), "fn main() {}".to_string());
+
+        let result = ctx.expand_file_references("explain @main.rs");
+        assert!(result.contains("[File: src/main.rs]"));
+        assert!(result.contains("fn main() {}"));
+    }
+
+    #[test]
+    fn test_expand_file_references_no_match() {
+        let mut ctx = ContextManager::new(4096, PathBuf::from("."));
+        ctx.files
+            .insert(PathBuf::from("src/main.rs"), "fn main() {}".to_string());
+
+        let result = ctx.expand_file_references("hello @nonexistent.rs world");
+        assert_eq!(result, "hello @nonexistent.rs world");
+    }
+
+    #[test]
+    fn test_expand_file_references_multiple() {
+        let mut ctx = ContextManager::new(4096, PathBuf::from("."));
+        ctx.files
+            .insert(PathBuf::from("src/main.rs"), "fn main() {}".to_string());
+        ctx.files
+            .insert(PathBuf::from("src/lib.rs"), "pub mod foo;".to_string());
+
+        let result = ctx.expand_file_references("compare @src/main.rs and @src/lib.rs");
+        assert!(result.contains("[File: src/main.rs]"));
+        assert!(result.contains("fn main() {}"));
+        assert!(result.contains("[File: src/lib.rs]"));
+        assert!(result.contains("pub mod foo;"));
+    }
+
+    #[test]
+    fn test_resolve_file_reference_ambiguous_filename() {
+        let mut ctx = ContextManager::new(4096, PathBuf::from("."));
+        ctx.files
+            .insert(PathBuf::from("src/main.rs"), "fn main() {}".to_string());
+        ctx.files.insert(
+            PathBuf::from("tests/main.rs"),
+            "fn test_main() {}".to_string(),
+        );
+
+        // Ambiguous filename — should return None
+        assert!(ctx.resolve_file_reference("main.rs").is_none());
+
+        // Exact path still works
+        assert_eq!(
+            ctx.resolve_file_reference("src/main.rs"),
+            Some(PathBuf::from("src/main.rs"))
+        );
     }
 }
 

@@ -401,7 +401,9 @@ impl Repl {
                     }
 
                     // Show inline preview after input changes
-                    if input.starts_with('/') && self.config.ui.inline_completion_preview {
+                    if (input.starts_with('/') || input.contains('@'))
+                        && self.config.ui.inline_completion_preview
+                    {
                         if let Some(preview) = self.get_inline_preview(&input) {
                             if !preview.is_empty() {
                                 // Show dimmed preview text
@@ -961,7 +963,20 @@ impl Repl {
                 } else {
                     println!("{}", style("Loaded rules:").cyan().bold());
                     for rule in rules {
-                        print!("  {}", style(&rule.name).green());
+                        let status = if rule.enabled {
+                            style("✓").green()
+                        } else {
+                            style("✗").dim()
+                        };
+                        let name_styled = if rule.enabled {
+                            style(&rule.name).green()
+                        } else {
+                            style(&rule.name).dim()
+                        };
+                        print!("  {} {}", status, name_styled);
+                        if !rule.enabled {
+                            print!(" {}", style("(disabled)").dim());
+                        }
                         if let Some(desc) = &rule.description {
                             print!(" - {}", style(desc).dim());
                         }
@@ -972,6 +987,52 @@ impl Repl {
                                 style(format!("applies to: {}", rule.applies_to.join(", "))).dim()
                             );
                         }
+                    }
+                }
+                Ok(true)
+            }
+            "rule" => {
+                if parts.len() < 3 {
+                    println!("{} /rule enable|disable <name>", style("Usage:").dim());
+                    return Ok(true);
+                }
+                let action = parts[1];
+                let name = parts[2..].join(" ");
+                match action {
+                    "enable" => {
+                        if self.rules.enable_rule(&name) {
+                            println!(
+                                "{} Enabled rule: {}",
+                                style("✓").green(),
+                                style(&name).cyan()
+                            );
+                            self.update_rules_for_context();
+                        } else {
+                            println!(
+                                "{} Rule not found: {}",
+                                style("✗").red(),
+                                style(&name).cyan()
+                            );
+                        }
+                    }
+                    "disable" => {
+                        if self.rules.disable_rule(&name) {
+                            println!(
+                                "{} Disabled rule: {}",
+                                style("✓").green(),
+                                style(&name).cyan()
+                            );
+                            self.update_rules_for_context();
+                        } else {
+                            println!(
+                                "{} Rule not found: {}",
+                                style("✗").red(),
+                                style(&name).cyan()
+                            );
+                        }
+                    }
+                    _ => {
+                        println!("{} /rule enable|disable <name>", style("Usage:").dim());
                     }
                 }
                 Ok(true)
@@ -1054,6 +1115,7 @@ impl Repl {
             ("/fileops [on|off]", "Toggle file operations"),
             ("/templates", "List available templates"),
             ("/rules", "Show loaded rules"),
+            ("/rule enable|disable", "Enable/disable a rule"),
         ];
 
         let mut content = String::new();
@@ -1249,8 +1311,10 @@ impl Repl {
     }
 
     async fn send_message(&mut self, content: &str) -> Result<()> {
-        // Add user message to context
-        self.context.add_message(Message::user(content));
+        // Expand @file references before sending to the LLM
+        let expanded = self.context.expand_file_references(content);
+        // Add the expanded message to context
+        self.context.add_message(Message::user(&expanded));
 
         // Build messages from context
         let messages = self.context.build_messages();
@@ -1366,6 +1430,8 @@ impl Repl {
                 .collect();
             if let Some(rules_prompt) = self.rules.build_rules_prompt(&files) {
                 self.context.set_rules(rules_prompt);
+            } else {
+                self.context.clear_rules();
             }
         }
     }
@@ -1395,6 +1461,51 @@ impl Repl {
             style(&session.name).cyan(),
             session.messages.len()
         );
+    }
+
+    /// Add files/directories to context from CLI --file flags
+    pub fn add_files(&mut self, files: &[PathBuf]) {
+        for path in files {
+            let path_str = path.to_string_lossy();
+            if path.is_dir() {
+                match self.context.add_directory(&*path_str) {
+                    Ok((added, skipped)) => {
+                        println!(
+                            "{} Added {} file(s) from {}",
+                            style("✓").green(),
+                            style(added).cyan(),
+                            style(&path_str).cyan()
+                        );
+                        if !skipped.is_empty() {
+                            println!(
+                                "{} Skipped {} file(s) (binary/unreadable)",
+                                style("⚠").yellow(),
+                                skipped.len()
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("{} {}: {}", style("Error:").red(), path_str, e);
+                    }
+                }
+            } else {
+                match self.context.add_file(&*path_str) {
+                    Ok(()) => {
+                        println!(
+                            "{} Added {} to context",
+                            style("✓").green(),
+                            style(&path_str).cyan()
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("{} {}: {}", style("Error:").red(), path_str, e);
+                    }
+                }
+            }
+        }
+        if !files.is_empty() {
+            self.update_rules_for_context();
+        }
     }
 
     /// Save the current session
@@ -1495,14 +1606,57 @@ pub async fn run_single_prompt(
     model: &str,
     prompt: &str,
     streaming: bool,
+    files: &[PathBuf],
 ) -> Result<()> {
     let model_config = config.get_model_config(model);
+    let project_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
-    let mut messages = Vec::new();
+    // Create a ContextManager to handle files and @references
+    let mut context = ContextManager::new(config.context_limit, project_root.clone());
+
     if let Some(system_prompt) = &model_config.system_prompt {
-        messages.push(Message::system(system_prompt.clone()));
+        context.set_system_prompt(system_prompt.clone());
     }
-    messages.push(Message::user(prompt));
+
+    // Add files from --file flags
+    for path in files {
+        let path_str = path.to_string_lossy();
+        if path.is_dir() {
+            match context.add_directory(&*path_str) {
+                Ok((added, _skipped)) => {
+                    eprintln!(
+                        "{} Added {} file(s) from {}",
+                        style("✓").green(),
+                        style(added).cyan(),
+                        style(&path_str).cyan()
+                    );
+                }
+                Err(e) => {
+                    eprintln!("{} {}: {}", style("Error:").red(), path_str, e);
+                }
+            }
+        } else {
+            match context.add_file(&*path_str) {
+                Ok(()) => {
+                    eprintln!(
+                        "{} Added {} to context",
+                        style("✓").green(),
+                        style(&path_str).cyan()
+                    );
+                }
+                Err(e) => {
+                    eprintln!("{} {}: {}", style("Error:").red(), path_str, e);
+                }
+            }
+        }
+    }
+
+    // Expand @file references in the prompt
+    let expanded_prompt = context.expand_file_references(prompt);
+
+    // Add user message and build the full message list
+    context.add_message(Message::user(&expanded_prompt));
+    let messages = context.build_messages();
 
     let request = ChatRequest {
         model: model.to_string(),
@@ -1552,7 +1706,6 @@ pub async fn run_single_prompt(
     };
 
     // Process file operations for single prompt mode too
-    let project_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let mut operations = parse_file_operations(&response, &project_root);
 
     if !operations.is_empty() {

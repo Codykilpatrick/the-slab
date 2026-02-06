@@ -51,6 +51,7 @@ async fn run() -> Result<()> {
         Commands::Chat {
             r#continue,
             session: session_name,
+            files,
         } => {
             // Health check first
             client.health_check().await?;
@@ -84,6 +85,9 @@ async fn run() -> Result<()> {
             if let Some(s) = session {
                 repl.load_session(s);
             }
+            if !files.is_empty() {
+                repl.add_files(&files);
+            }
             repl.run().await?;
 
             // Auto-save session
@@ -94,12 +98,12 @@ async fn run() -> Result<()> {
             }
         }
 
-        Commands::Run { prompt } => {
+        Commands::Run { prompt, files } => {
             // Health check
             client.health_check().await?;
 
             let model = get_model(&cli, &config, &client).await?;
-            repl::run_single_prompt(&client, &config, &model, &prompt, streaming).await?;
+            repl::run_single_prompt(&client, &config, &model, &prompt, streaming, &files).await?;
         }
 
         Commands::Config { show: _, init, set } => {

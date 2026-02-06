@@ -142,8 +142,13 @@ impl CompletionEngine {
     pub fn complete(&self, input: &str, context: &CompletionContext) -> Vec<Completion> {
         let input = input.trim_start();
 
-        // If input doesn't start with '/', check history only
+        // If input doesn't start with '/', check for @file references and history
         if !input.starts_with('/') {
+            // Check for @file references
+            if let Some(at_completions) = self.complete_at_reference(input, context) {
+                return at_completions;
+            }
+
             // For non-command input, offer history suggestions
             let history_completer = HistoryCompleter;
             let mut completions = history_completer.complete(input, context);
@@ -186,6 +191,39 @@ impl CompletionEngine {
             self.sort_completions(&mut completions);
             completions
         }
+    }
+
+    /// Check for an `@` file reference being typed and return completions if found.
+    /// Looks for the last `@` at a word boundary (start of input or after whitespace).
+    fn complete_at_reference(
+        &self,
+        input: &str,
+        context: &CompletionContext,
+    ) -> Option<Vec<Completion>> {
+        // Find the last '@' that's at the start or preceded by whitespace
+        let at_pos = input.rmatch_indices('@').find(|(pos, _)| {
+            *pos == 0 || input.as_bytes().get(pos - 1) == Some(&b' ')
+        });
+
+        let (at_pos, _) = at_pos?;
+        let query = &input[at_pos + 1..];
+        let prefix = &input[..at_pos];
+
+        let completer = ContextFileCompleter;
+        let mut completions = completer.complete(query, context);
+
+        if completions.is_empty() {
+            return None;
+        }
+
+        // Rebuild full input with @completed_filename
+        for completion in &mut completions {
+            completion.text = format!("{}@{}", prefix, completion.text);
+        }
+
+        self.apply_fuzzy_scoring(&mut completions, query);
+        self.sort_completions(&mut completions);
+        Some(completions)
     }
 
     /// Apply fuzzy scoring to completions

@@ -27,6 +27,7 @@
   - [REPL Commands](#repl-commands)
   - [Keyboard Shortcuts](#keyboard-shortcuts)
   - [Tab Completion](#tab-completion)
+  - [`@` File References](#-file-references)
 - [Configuration](#configuration)
   - [Example Config](#example-config)
   - [Config Options](#config-options)
@@ -64,6 +65,7 @@
 - **Session Management** - Save and resume conversations
 - **Syntax Highlighting** - Beautiful code blocks in responses
 - **Theming** - 6 built-in color themes with customizable box styles
+- **`@` File References** - Inline file contents in prompts with `@filename` and tab completion
 - **Smart Autocomplete** - Fish-style inline preview with fuzzy matching
 
 ## Installation
@@ -144,7 +146,9 @@ slab chat
 slab chat                    # Start interactive REPL
 slab chat --continue         # Resume last session
 slab chat --session myproj   # Use named session
+slab chat -f src/main.rs     # Start REPL with files pre-loaded
 slab run "your prompt"       # Run single prompt
+slab run -f src/ "summarize" # Run prompt with file context
 slab models                  # List available models
 slab sessions                # List saved sessions
 slab test                    # Run prompt tests
@@ -161,6 +165,26 @@ slab completions bash        # Generate shell completions
 -v, --verbose          # Enable verbose output
     --no-stream        # Disable streaming
 ```
+
+### File Flag (`--file` / `-f`)
+
+Pass files or directories into context from the command line with `-f`. Repeatable for multiple files.
+
+```bash
+# Single file
+slab run -f src/main.rs "explain this code"
+
+# Multiple files
+slab chat -f src/main.rs -f src/lib.rs
+
+# Entire directory
+slab run -f src/ "summarize this project"
+
+# Combine with @ references
+slab run -f src/main.rs -f src/lib.rs "compare @main.rs and @lib.rs"
+```
+
+For `slab chat`, files are loaded into context before the REPL starts (visible via `/files`). For `slab run`, files are added to context and `@` references are expanded in the prompt.
 
 ### REPL Commands
 
@@ -201,6 +225,32 @@ The REPL features intelligent tab completion:
 - **Fuzzy matching** - Typo-tolerant matching (e.g., `/hlp` matches `/help`)
 - **Fish-style preview** - Ghost text shows the top suggestion as you type
 - **Interactive menu** - Arrow keys to navigate, Enter to select
+- **`@` file references** - Complete `@filename` against files in context
+
+### `@` File References
+
+Use `@filename` in your prompts to inline a file's content directly in the message sent to the LLM. This gives the model focused attention on a specific file without relying solely on the system context.
+
+```text
+/add src/main.rs
+/add src/lib.rs
+
+explain @main.rs
+compare @src/main.rs and @src/lib.rs
+```
+
+**How it works:**
+
+1. Add files to context with `/add` in the REPL, or `--file` / `-f` from the CLI
+2. Reference them in your prompt with `@path` (e.g., `@src/main.rs`)
+3. The `@` reference is expanded to the full file content before sending to the LLM
+4. Tab completion works for `@` references — type `@` and press Tab to see matching files
+
+**Matching strategy:**
+
+- **Exact path** - `@src/main.rs` matches the context file `src/main.rs`
+- **Filename only** - `@main.rs` matches `src/main.rs` if there's only one `main.rs` in context
+- **No match** - If the reference doesn't resolve, it's left as-is (e.g., `@someone` in prose)
 
 ## Configuration
 
