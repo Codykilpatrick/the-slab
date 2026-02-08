@@ -201,9 +201,9 @@ impl CompletionEngine {
         context: &CompletionContext,
     ) -> Option<Vec<Completion>> {
         // Find the last '@' that's at the start or preceded by whitespace
-        let at_pos = input.rmatch_indices('@').find(|(pos, _)| {
-            *pos == 0 || input.as_bytes().get(pos - 1) == Some(&b' ')
-        });
+        let at_pos = input
+            .rmatch_indices('@')
+            .find(|(pos, _)| *pos == 0 || input.as_bytes().get(pos - 1) == Some(&b' '));
 
         let (at_pos, _) = at_pos?;
         let query = &input[at_pos + 1..];

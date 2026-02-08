@@ -52,6 +52,7 @@ async fn run() -> Result<()> {
             r#continue,
             session: session_name,
             files,
+            template,
         } => {
             // Health check first
             client.health_check().await?;
@@ -88,6 +89,12 @@ async fn run() -> Result<()> {
             if !files.is_empty() {
                 repl.add_files(&files);
             }
+
+            // If a template is provided, send it as the first message
+            if let Some(tpl_name) = &template {
+                repl.send_template(tpl_name).await?;
+            }
+
             repl.run().await?;
 
             // Auto-save session
@@ -98,12 +105,25 @@ async fn run() -> Result<()> {
             }
         }
 
-        Commands::Run { prompt, files } => {
+        Commands::Run {
+            prompt,
+            files,
+            template,
+        } => {
             // Health check
             client.health_check().await?;
 
             let model = get_model(&cli, &config, &client).await?;
-            repl::run_single_prompt(&client, &config, &model, &prompt, streaming, &files).await?;
+            repl::run_single_prompt(
+                &client,
+                &config,
+                &model,
+                &prompt,
+                streaming,
+                &files,
+                template.as_deref(),
+            )
+            .await?;
         }
 
         Commands::Config { show: _, init, set } => {

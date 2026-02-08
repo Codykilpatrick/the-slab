@@ -1508,6 +1508,31 @@ impl Repl {
         }
     }
 
+    /// Send a template as an initial message (used with --template flag in chat mode)
+    pub async fn send_template(&mut self, template_name: &str) -> Result<()> {
+        let template = self.templates.get(template_name).ok_or_else(|| {
+            crate::error::SlabError::TemplateError(format!("Template not found: {}", template_name))
+        })?;
+        let template_display_name = template.name.clone();
+
+        // Render with defaults only (no user variables in chat mode)
+        let variables = HashMap::new();
+        let rendered = self
+            .templates
+            .render(&template_display_name, &variables, &self.context)
+            .map_err(crate::error::SlabError::TemplateError)?;
+
+        eprintln!(
+            "{} {} {}",
+            style("→").cyan(),
+            style("Using template:").dim(),
+            style(template_name).yellow()
+        );
+
+        self.send_message(&rendered).await?;
+        Ok(())
+    }
+
     /// Save the current session
     pub fn save_session(&self, name: &str) -> std::result::Result<(), String> {
         let messages = self.context.messages().to_vec();
@@ -1607,6 +1632,7 @@ pub async fn run_single_prompt(
     prompt: &str,
     streaming: bool,
     files: &[PathBuf],
+    template_name: Option<&str>,
 ) -> Result<()> {
     let model_config = config.get_model_config(model);
     let project_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -1651,11 +1677,56 @@ pub async fn run_single_prompt(
         }
     }
 
-    // Expand @file references in the prompt
-    let expanded_prompt = context.expand_file_references(prompt);
+    // Resolve the actual prompt: either render a template or use as-is
+    let actual_prompt = if let Some(tpl_name) = template_name {
+        // Load templates
+        let mut templates = TemplateManager::new();
+        templates.load_defaults();
+        let template_dirs = get_template_directories(&project_root);
+        templates.load_from_directories(&template_dirs);
+
+        // Look up the template
+        let template = templates.get(tpl_name).ok_or_else(|| {
+            crate::error::SlabError::TemplateError(format!("Template not found: {}", tpl_name))
+        })?;
+        let template_display_name = template.name.clone();
+
+        // Parse prompt string as key=value pairs for template variables
+        let mut variables = HashMap::new();
+        let mut content_parts = Vec::new();
+
+        for part in prompt.split_whitespace() {
+            if let Some((key, value)) = part.split_once('=') {
+                variables.insert(key.to_string(), value.to_string());
+            } else {
+                content_parts.push(part);
+            }
+        }
+
+        if !content_parts.is_empty() {
+            variables.insert("content".to_string(), content_parts.join(" "));
+        }
+
+        // Render the template
+        let rendered = templates
+            .render(&template_display_name, &variables, &context)
+            .map_err(crate::error::SlabError::TemplateError)?;
+
+        eprintln!(
+            "{} {} {}",
+            style("→").cyan(),
+            style("Using template:").dim(),
+            style(tpl_name).yellow()
+        );
+
+        rendered
+    } else {
+        // Expand @file references in the prompt
+        context.expand_file_references(prompt)
+    };
 
     // Add user message and build the full message list
-    context.add_message(Message::user(&expanded_prompt));
+    context.add_message(Message::user(&actual_prompt));
     let messages = context.build_messages();
 
     let request = ChatRequest {

@@ -29,6 +29,9 @@ pub enum SlabError {
     #[error("File operation error: {0}")]
     FileOperation(String),
 
+    #[error("Template error: {0}")]
+    TemplateError(String),
+
     #[allow(dead_code)]
     #[error("{0}")]
     Other(String),

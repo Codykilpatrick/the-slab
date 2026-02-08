@@ -54,16 +54,24 @@ pub enum Commands {
         /// Add file(s) or directory to context
         #[arg(short = 'f', long = "file")]
         files: Vec<PathBuf>,
+
+        /// Apply a prompt template by name (e.g., "review", "explain")
+        #[arg(short = 't', long = "template")]
+        template: Option<String>,
     },
 
     /// Run a single prompt and exit
     Run {
-        /// The prompt to send
+        /// The prompt to send (or template variables like key=value when using --template)
         prompt: String,
 
         /// Add file(s) or directory to context
         #[arg(short = 'f', long = "file")]
         files: Vec<PathBuf>,
+
+        /// Apply a prompt template by name (e.g., "review", "explain")
+        #[arg(short = 't', long = "template")]
+        template: Option<String>,
     },
 
     /// Show or edit configuration
@@ -123,6 +131,7 @@ impl Cli {
             r#continue: false,
             session: None,
             files: Vec::new(),
+            template: None,
         })
     }
 }
@@ -134,14 +143,21 @@ impl Clone for Commands {
                 r#continue,
                 session,
                 files,
+                template,
             } => Commands::Chat {
                 r#continue: *r#continue,
                 session: session.clone(),
                 files: files.clone(),
+                template: template.clone(),
             },
-            Commands::Run { prompt, files } => Commands::Run {
+            Commands::Run {
+                prompt,
+                files,
+                template,
+            } => Commands::Run {
                 prompt: prompt.clone(),
                 files: files.clone(),
+                template: template.clone(),
             },
             Commands::Config { show, init, set } => Commands::Config {
                 show: *show,

@@ -1,0 +1,10 @@
+name: c-to-rust
+command: /c-to-rust
+description: Translate C code to idiomatic Rust
+prompt: |
+  Translate the attached C code to idiomatic Rust.
+
+  If a bindings.rs file is attached, it contains existing FFI definitions
+  that should NOT be re-translated. Reference them as imports where needed.
+
+  Output only the Rust code in a ```rust block.
