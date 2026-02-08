@@ -1,0 +1,20 @@
+name: analyze
+command: /analyze
+description: Analyze a Rust translation for issues without compiling
+prompt: |
+  Analyze the attached Rust translation of C code for correctness issues.
+  Do NOT output corrected code. Instead, report your findings as text.
+
+  Check for:
+  - Type mismatches (e.g. u32 vs i32 in bitwise ops, pointer mutability)
+  - Borrow checker violations (returning &mut from &mut self, multiple mutable borrows)
+  - Unsigned integer negation without casting to signed first
+  - Arithmetic overflow (e.g. casting to u8 then shifting by 8+)
+  - Unused imports
+  - Missing or incorrect error handling vs the original C
+  - Logic differences from the original C code
+
+  For each issue found, report:
+  1. The function or line where it occurs
+  2. What the problem is
+  3. How to fix it
