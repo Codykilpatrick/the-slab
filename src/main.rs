@@ -533,17 +533,67 @@ async fn init_project(client: &OllamaClient) -> Result<()> {
     }
     config.save()?;
 
-    // Create example rule
-    let rust_rules = r#"# Rust Coding Rules
+    // Create rules
+    let rust_rules = r#"When translating C to Rust follow the following rules:
 
-- Use `thiserror` for custom error types
-- No `unwrap()` or `expect()` in production code - use proper error handling
-- Use `tracing` for logging instead of `println!`
-- Prefer `&str` over `String` for function parameters when ownership isn't needed
+REQUIREMENTS:
+1. NO `unsafe` blocks - the code must be 100% safe Rust
+2. NO global/static mutable state - use structs with methods instead
+3. Use `Result<T, E>` for all operations that can fail
+4. Use `Option<T>` for nullable values
+5. Use iterators instead of manual loops where possible
+6. Follow Rust naming conventions (snake_case for functions/variables, CamelCase for types)
+7. Add appropriate derive macros (Debug, Clone, etc.) where useful
+8. The code must compile with `cargo build` without warnings
+9. The code must pass `cargo clippy` with no warnings
+10. NEVER use `OnceLock`, `Lazy`, `static mut`, `Rc`, `RefCell`, or any global/static storage. Encapsulate ALL state into owned structs with methods. If the C code has free-standing functions that operate on global state, convert them to methods on the struct - do NOT create wrapper functions with hidden global state. The caller is responsible for creating and owning the struct instance.
+11. Do NOT include unused imports - only import what is actually used in the code.
+12. Use `match` expressions for branching instead of if/else chains where possible.
+13. Use iterators (`.iter()`, `.map()`, `.filter()`, `.collect()`) instead of manual loops where possible.
+14. Keep code concise - avoid verbose getter/setter boilerplate when direct public field access or builder patterns would be more idiomatic.
+15. NEVER negate unsigned integers directly. Cast to the signed type BEFORE negating: use `-(x as i32)` not `-(x)` where x is u32. For zigzag decoding use wrapping operations like `.wrapping_neg()` or explicit casts.
+16. C `union` types must be translated to Rust `enum` variants with data, NOT Rust `union`. Avoid `#[repr(C, packed)]` - instead model the wire format with serialization/deserialization methods that read and write byte slices.
+17. Never return `&mut T` references from methods that also require `&mut self` - this causes multiple mutable borrow errors. Instead return indices or owned handles, and provide separate methods to access elements by index.
+
+C Header:
+```c
+{c_header}
+```
+
+C Source:
+```c
+{c_code}
+```
 "#;
     std::fs::write(".slab/rules/rust.md", rust_rules)?;
 
-    // Create example template
+    let translation_plan = r#"# Global State Translation Plan: C to Rust
+
+## Overview
+This document outlines the strategic approach for translating C global state patterns to idiomatic Rust, focusing on methodology rather than code implementation.
+
+## Phase 1: Analysis and Assessment
+
+### 1.1 Identify Anti-patterns
+- **Global mutable state** - State shared across the entire program
+- **Static variables for state preservation** - Variables that maintain state between function calls
+- **Scattered global state** - Multiple global variables spread across files
+- **Error codes as returns** - Using integers for error handling instead of proper error types
+
+### 1.2 Map C Patterns to Rust Concepts
+- Global variables → Structs with methods
+- Static state → Encapsulated state within struct instances
+- Multiple global variables → Single struct with multiple fields
+- Error codes → Result types and custom error enums
+
+## Phase 2: Design Strategy
+
+### 2.1 Counter Pattern Transformation
+**C Approach:**What
+"#;
+    std::fs::write(".slab/rules/translation_plan.md", translation_plan)?;
+
+    // Create templates
     let review_template = r#"name: code_review
 command: /review
 description: Review code for issues and improvements
@@ -562,6 +612,42 @@ prompt: |
   4. Security considerations
 "#;
     std::fs::write(".slab/templates/review.yaml", review_template)?;
+
+    let c_to_rust_template = r#"name: c-to-rust
+command: /c-to-rust
+description: Translate C code to idiomatic Rust
+prompt: |
+  Translate the attached C code to idiomatic Rust.
+
+  If a bindings.rs file is attached, it contains existing FFI definitions
+  that should NOT be re-translated. Reference them as imports where needed.
+
+  Output only the Rust code in a ```rust block.
+"#;
+    std::fs::write(".slab/templates/c-to-rust.yaml", c_to_rust_template)?;
+
+    let analyze_template = r#"name: analyze
+command: /analyze
+description: Analyze a Rust translation for issues without compiling
+prompt: |
+  Analyze the attached Rust translation of C code for correctness issues.
+  Do NOT output corrected code. Instead, report your findings as text.
+
+  Check for:
+  - Type mismatches (e.g. u32 vs i32 in bitwise ops, pointer mutability)
+  - Borrow checker violations (returning &mut from &mut self, multiple mutable borrows)
+  - Unsigned integer negation without casting to signed first
+  - Arithmetic overflow (e.g. casting to u8 then shifting by 8+)
+  - Unused imports
+  - Missing or incorrect error handling vs the original C
+  - Logic differences from the original C code
+
+  For each issue found, report:
+  1. The function or line where it occurs
+  2. What the problem is
+  3. How to fix it
+"#;
+    std::fs::write(".slab/templates/analyze.yaml", analyze_template)?;
 
     // Create example test
     let example_test = r#"name: basic_response
@@ -583,7 +669,10 @@ tags:
     println!("  Created:");
     println!("    .slab/config.toml");
     println!("    .slab/rules/rust.md");
+    println!("    .slab/rules/translation_plan.md");
     println!("    .slab/templates/review.yaml");
+    println!("    .slab/templates/c-to-rust.yaml");
+    println!("    .slab/templates/analyze.yaml");
     println!("    .slab/tests/basic.yaml");
     println!("    .slab/sessions/");
     println!();
