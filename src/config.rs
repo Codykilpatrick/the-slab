@@ -212,10 +212,12 @@ impl Config {
             return Self::load_from_path(path);
         }
 
-        // Try project-local config first
-        let local_config = PathBuf::from(".slab/config.toml");
-        if local_config.exists() {
-            return Self::load_from_path(&local_config);
+        // Try project-local config by walking up directory tree
+        if let Some(project_root) = find_project_root() {
+            let local_config = project_root.join(".slab/config.toml");
+            if local_config.exists() {
+                return Self::load_from_path(&local_config);
+            }
         }
 
         // Try global config
@@ -240,7 +242,11 @@ impl Config {
     }
 
     pub fn project_config_path() -> PathBuf {
-        PathBuf::from(".slab/config.toml")
+        if let Some(root) = find_project_root() {
+            root.join(".slab/config.toml")
+        } else {
+            PathBuf::from(".slab/config.toml")
+        }
     }
 
     /// Get the model config for a given model name, or create a default one
@@ -274,5 +280,20 @@ impl Config {
             toml::to_string_pretty(self).map_err(|e| SlabError::ConfigError(e.to_string()))?;
         std::fs::write(&path, content)?;
         Ok(())
+    }
+}
+
+/// Walk up the directory tree from the current directory looking for a `.slab` directory.
+/// Returns the directory containing `.slab/` (the project root), or None.
+pub fn find_project_root() -> Option<PathBuf> {
+    let mut dir = std::env::current_dir().ok()?;
+    loop {
+        let slab_dir = dir.join(".slab");
+        if slab_dir.is_dir() {
+            return Some(dir);
+        }
+        if !dir.pop() {
+            return None;
+        }
     }
 }

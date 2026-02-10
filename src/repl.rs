@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::completion::{CompletionContext, CompletionEngine, CompletionKind};
-use crate::config::Config;
+use crate::config::{find_project_root, Config};
 use crate::context::ContextManager;
 use crate::error::Result;
 use crate::file_ops::{execute_operations, parse_file_operations, FileOperationUI};
@@ -41,8 +41,9 @@ pub struct Repl {
 
 impl Repl {
     pub fn new(client: OllamaClient, config: Config, model: String, streaming: bool) -> Self {
-        // Get current directory as project root
-        let project_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        // Find project root by walking up to find .slab/, fall back to cwd
+        let project_root = find_project_root()
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
         // Create context manager
         let mut context = ContextManager::new(config.context_limit, project_root.clone());
@@ -1709,7 +1710,8 @@ pub async fn run_single_prompt(
     template_name: Option<&str>,
 ) -> Result<()> {
     let model_config = config.get_model_config(model);
-    let project_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let project_root = find_project_root()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
     // Create a ContextManager to handle files and @references
     let mut context = ContextManager::new(config.context_limit, project_root.clone());

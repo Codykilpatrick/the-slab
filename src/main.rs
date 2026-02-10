@@ -417,7 +417,9 @@ async fn list_models(client: &OllamaClient, names_only: bool) -> Result<()> {
 }
 
 fn list_sessions(names_only: bool) -> Result<()> {
-    let sessions_dir = std::path::PathBuf::from(".slab/sessions");
+    let sessions_dir = config::find_project_root()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+        .join(".slab/sessions");
 
     if !sessions_dir.exists() {
         if !names_only {
@@ -818,7 +820,8 @@ async fn run_tests(
     };
 
     // Load tests from tests/prompt_tests/ or .slab/tests/
-    let project_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let project_root = config::find_project_root()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let test_dirs = [
         project_root.join("tests/prompt_tests"),
         project_root.join(".slab/tests"),

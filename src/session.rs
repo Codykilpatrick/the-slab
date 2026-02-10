@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+use crate::config::find_project_root;
 use crate::ollama::Message;
 
 /// A saved chat session
@@ -32,10 +33,12 @@ impl Session {
 
     /// Get the session directory
     fn session_dir() -> Option<PathBuf> {
-        // Try project-local first
-        let local_dir = PathBuf::from(".slab/sessions");
-        if local_dir.exists() || std::fs::create_dir_all(&local_dir).is_ok() {
-            return Some(local_dir);
+        // Try project-local first by walking up directory tree
+        if let Some(root) = find_project_root() {
+            let local_dir = root.join(".slab/sessions");
+            if local_dir.exists() || std::fs::create_dir_all(&local_dir).is_ok() {
+                return Some(local_dir);
+            }
         }
 
         // Fall back to global
