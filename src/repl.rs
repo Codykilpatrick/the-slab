@@ -1362,21 +1362,19 @@ impl Repl {
         // Enable raw mode and spawn a task to listen for Ctrl+C / Ctrl+D
         crossterm::terminal::enable_raw_mode().ok();
         let (cancel_tx, mut cancel_rx) = tokio::sync::mpsc::channel::<()>(1);
-        tokio::task::spawn_blocking(move || {
-            loop {
-                if cancel_tx.is_closed() {
-                    return;
-                }
-                if event::poll(Duration::from_millis(50)).unwrap_or(false) {
-                    if let Ok(Event::Key(key_event)) = event::read() {
-                        match (key_event.code, key_event.modifiers) {
-                            (KeyCode::Char('c'), KeyModifiers::CONTROL)
-                            | (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
-                                let _ = cancel_tx.blocking_send(());
-                                return;
-                            }
-                            _ => {}
+        tokio::task::spawn_blocking(move || loop {
+            if cancel_tx.is_closed() {
+                return;
+            }
+            if event::poll(Duration::from_millis(50)).unwrap_or(false) {
+                if let Ok(Event::Key(key_event)) = event::read() {
+                    match (key_event.code, key_event.modifiers) {
+                        (KeyCode::Char('c'), KeyModifiers::CONTROL)
+                        | (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                            let _ = cancel_tx.blocking_send(());
+                            return;
                         }
+                        _ => {}
                     }
                 }
             }
@@ -1450,21 +1448,19 @@ impl Repl {
         // Enable raw mode and spawn a task to listen for Ctrl+C / Ctrl+D
         crossterm::terminal::enable_raw_mode().ok();
         let (cancel_tx, mut cancel_rx) = tokio::sync::mpsc::channel::<()>(1);
-        tokio::task::spawn_blocking(move || {
-            loop {
-                if cancel_tx.is_closed() {
-                    return;
-                }
-                if event::poll(Duration::from_millis(50)).unwrap_or(false) {
-                    if let Ok(Event::Key(key_event)) = event::read() {
-                        match (key_event.code, key_event.modifiers) {
-                            (KeyCode::Char('c'), KeyModifiers::CONTROL)
-                            | (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
-                                let _ = cancel_tx.blocking_send(());
-                                return;
-                            }
-                            _ => {}
+        tokio::task::spawn_blocking(move || loop {
+            if cancel_tx.is_closed() {
+                return;
+            }
+            if event::poll(Duration::from_millis(50)).unwrap_or(false) {
+                if let Ok(Event::Key(key_event)) = event::read() {
+                    match (key_event.code, key_event.modifiers) {
+                        (KeyCode::Char('c'), KeyModifiers::CONTROL)
+                        | (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                            let _ = cancel_tx.blocking_send(());
+                            return;
                         }
+                        _ => {}
                     }
                 }
             }

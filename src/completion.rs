@@ -725,9 +725,7 @@ mod tests {
     #[test]
     fn test_inline_command_after_at_reference() {
         let mut engine = CompletionEngine::new();
-        engine.add_template_commands(vec![
-            ("c-to-rust".into(), "Convert C to Rust".into()),
-        ]);
+        engine.add_template_commands(vec![("c-to-rust".into(), "Convert C to Rust".into())]);
         let context = CompletionContext {
             context_files: vec![],
             cwd: Path::new("."),
