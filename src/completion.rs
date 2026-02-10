@@ -142,11 +142,16 @@ impl CompletionEngine {
     pub fn complete(&self, input: &str, context: &CompletionContext) -> Vec<Completion> {
         let input = input.trim_start();
 
-        // If input doesn't start with '/', check for @file references and history
+        // Always check for @file references first — works regardless of whether
+        // input starts with a / command or plain text (e.g. "/c-to-rust @fi")
+        if let Some(at_completions) = self.complete_at_reference(input, context) {
+            return at_completions;
+        }
+
         if !input.starts_with('/') {
-            // Check for @file references
-            if let Some(at_completions) = self.complete_at_reference(input, context) {
-                return at_completions;
+            // Check for an inline /command at the end (e.g. "@file.rs /c-to-")
+            if let Some(cmd_completions) = self.complete_inline_command(input, context) {
+                return cmd_completions;
             }
 
             // For non-command input, offer history suggestions
@@ -231,6 +236,42 @@ impl CompletionEngine {
         }
 
         self.apply_fuzzy_scoring(&mut completions, query);
+        self.sort_completions(&mut completions);
+        Some(completions)
+    }
+
+    /// Check for an inline `/command` being typed after other content
+    /// (e.g. `@file.rs /c-to-`). Looks for the last `/` at a word boundary.
+    fn complete_inline_command(
+        &self,
+        input: &str,
+        context: &CompletionContext,
+    ) -> Option<Vec<Completion>> {
+        // Find the last '/' that's at a word boundary (preceded by whitespace)
+        let slash_pos = input
+            .rmatch_indices('/')
+            .find(|(pos, _)| *pos > 0 && input.as_bytes().get(pos - 1) == Some(&b' '));
+
+        let (slash_pos, _) = slash_pos?;
+        let command_part = &input[slash_pos + 1..];
+        let prefix = &input[..slash_pos];
+
+        // Only complete if still typing the command name (no space after /)
+        if command_part.contains(' ') {
+            return None;
+        }
+
+        let mut completions = self.command_list_completer.complete(command_part, context);
+        if completions.is_empty() {
+            return None;
+        }
+
+        // Rebuild full input: prefix + completed command
+        for completion in &mut completions {
+            completion.text = format!("{}{}", prefix, completion.text);
+        }
+
+        self.apply_fuzzy_scoring(&mut completions, command_part);
         self.sort_completions(&mut completions);
         Some(completions)
     }
@@ -651,5 +692,55 @@ mod tests {
         // Test model completion (now includes command prefix)
         let completions = engine.complete("/model ll", &context);
         assert!(completions.iter().any(|c| c.text == "/model llama3"));
+    }
+
+    #[test]
+    fn test_at_reference_after_command() {
+        let engine = CompletionEngine::new();
+        let cwd = std::env::current_dir().unwrap();
+        let context = CompletionContext {
+            context_files: vec![],
+            cwd: &cwd,
+            models: None,
+            history: &[],
+        };
+
+        // Typing "/some-command @" should trigger file completions, not return empty
+        let completions = engine.complete("/some-command @", &context);
+        // Should have file/dir completions from cwd (non-empty directory)
+        assert!(
+            !completions.is_empty(),
+            "Should get file completions after /command @"
+        );
+        // Each completion should preserve the command prefix
+        for c in &completions {
+            assert!(
+                c.text.starts_with("/some-command @"),
+                "Completion '{}' should start with '/some-command @'",
+                c.text
+            );
+        }
+    }
+
+    #[test]
+    fn test_inline_command_after_at_reference() {
+        let mut engine = CompletionEngine::new();
+        engine.add_template_commands(vec![
+            ("c-to-rust".into(), "Convert C to Rust".into()),
+        ]);
+        let context = CompletionContext {
+            context_files: vec![],
+            cwd: Path::new("."),
+            models: None,
+            history: &[],
+        };
+
+        // Typing "@file.rs /c-to" should offer /c-to-rust command completion
+        let completions = engine.complete("@file.rs /c-to", &context);
+        assert!(
+            completions.iter().any(|c| c.text.contains("/c-to-rust")),
+            "Should get command completions for inline /command: {:?}",
+            completions.iter().map(|c| &c.text).collect::<Vec<_>>()
+        );
     }
 }

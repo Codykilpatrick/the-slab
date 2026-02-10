@@ -1359,18 +1359,63 @@ impl Repl {
         print!("{} ", style("┃").blue());
         io::stdout().flush().ok();
 
-        while let Some(result) = rx.recv().await {
-            match result {
-                Ok(chunk) => {
-                    full_response.push_str(&chunk);
-                    print!("{}", chunk);
-                    io::stdout().flush().ok();
+        // Enable raw mode and spawn a task to listen for Ctrl+C / Ctrl+D
+        crossterm::terminal::enable_raw_mode().ok();
+        let (cancel_tx, mut cancel_rx) = tokio::sync::mpsc::channel::<()>(1);
+        tokio::task::spawn_blocking(move || {
+            loop {
+                if cancel_tx.is_closed() {
+                    return;
                 }
-                Err(e) => {
-                    println!("\n{} {}", style("Error:").red(), e);
-                    return Ok(String::new());
+                if event::poll(Duration::from_millis(50)).unwrap_or(false) {
+                    if let Ok(Event::Key(key_event)) = event::read() {
+                        match (key_event.code, key_event.modifiers) {
+                            (KeyCode::Char('c'), KeyModifiers::CONTROL)
+                            | (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                                let _ = cancel_tx.blocking_send(());
+                                return;
+                            }
+                            _ => {}
+                        }
+                    }
                 }
             }
+        });
+
+        let mut interrupted = false;
+
+        loop {
+            tokio::select! {
+                chunk = rx.recv() => {
+                    match chunk {
+                        Some(Ok(text)) => {
+                            full_response.push_str(&text);
+                            print!("{}", text);
+                            io::stdout().flush().ok();
+                        }
+                        Some(Err(e)) => {
+                            crossterm::terminal::disable_raw_mode().ok();
+                            println!("\n{} {}", style("Error:").red(), e);
+                            return Ok(String::new());
+                        }
+                        None => break,
+                    }
+                }
+                _ = cancel_rx.recv() => {
+                    interrupted = true;
+                    break;
+                }
+            }
+        }
+
+        crossterm::terminal::disable_raw_mode().ok();
+
+        if interrupted {
+            // Drop the receiver so the spawned stream task stops
+            drop(rx);
+            println!("\n{}", style("(interrupted)").dim());
+            println!();
+            return Ok(String::new());
         }
 
         println!();
@@ -1402,8 +1447,41 @@ impl Repl {
         spinner.set_message("Thinking...");
         spinner.enable_steady_tick(Duration::from_millis(80));
 
-        let response = self.client.chat(request).await?;
+        // Enable raw mode and spawn a task to listen for Ctrl+C / Ctrl+D
+        crossterm::terminal::enable_raw_mode().ok();
+        let (cancel_tx, mut cancel_rx) = tokio::sync::mpsc::channel::<()>(1);
+        tokio::task::spawn_blocking(move || {
+            loop {
+                if cancel_tx.is_closed() {
+                    return;
+                }
+                if event::poll(Duration::from_millis(50)).unwrap_or(false) {
+                    if let Ok(Event::Key(key_event)) = event::read() {
+                        match (key_event.code, key_event.modifiers) {
+                            (KeyCode::Char('c'), KeyModifiers::CONTROL)
+                            | (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                                let _ = cancel_tx.blocking_send(());
+                                return;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        });
 
+        let response = tokio::select! {
+            resp = self.client.chat(request) => resp?,
+            _ = cancel_rx.recv() => {
+                crossterm::terminal::disable_raw_mode().ok();
+                spinner.finish_and_clear();
+                println!("{}", style("(interrupted)").dim());
+                println!();
+                return Ok(String::new());
+            }
+        };
+
+        crossterm::terminal::disable_raw_mode().ok();
         spinner.finish_and_clear();
 
         // Format with syntax highlighting if there are code blocks
