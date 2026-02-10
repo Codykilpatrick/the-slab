@@ -1095,6 +1095,13 @@ impl Repl {
         // Send the rendered prompt
         self.send_message(&prompt).await?;
 
+        // Replace the verbose template prompt in history with a short summary
+        // so follow-up messages aren't dominated by the template instructions
+        let summary = format!("[Used /{} template]", cmd);
+        if let Some(msg) = self.context.last_user_message_mut() {
+            *msg = summary;
+        }
+
         Ok(true)
     }
 

@@ -200,6 +200,15 @@ impl ContextManager {
         &self.messages
     }
 
+    /// Get a mutable reference to the content of the last user message
+    pub fn last_user_message_mut(&mut self) -> Option<&mut String> {
+        self.messages
+            .iter_mut()
+            .rev()
+            .find(|m| m.role == "user")
+            .map(|m| &mut m.content)
+    }
+
     /// Clear conversation messages (but keep files)
     pub fn clear_messages(&mut self) {
         self.messages.clear();
