@@ -209,8 +209,17 @@ impl CompletionEngine {
         let query = &input[at_pos + 1..];
         let prefix = &input[..at_pos];
 
-        let completer = ContextFileCompleter;
-        let mut completions = completer.complete(query, context);
+        let file_completer = FileCompleter::new();
+        let mut completions = file_completer.complete(query, context);
+
+        // Also include files already in context
+        let ctx_completer = ContextFileCompleter;
+        let ctx_completions = ctx_completer.complete(query, context);
+        for c in ctx_completions {
+            if !completions.iter().any(|existing| existing.text == c.text) {
+                completions.push(c);
+            }
+        }
 
         if completions.is_empty() {
             return None;
