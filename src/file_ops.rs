@@ -319,28 +319,37 @@ pub fn parse_file_operations(text: &str, project_root: &Path) -> Vec<FileOperati
 
         if let Some(header) = line.strip_prefix("```") {
             if in_code_block {
-                // End of code block
-                if let Some(path) = current_path.take() {
-                    let full_path = project_root.join(&path);
-                    let op = if full_path.exists() {
-                        let original = fs::read_to_string(&full_path).ok();
-                        FileOperation::Edit {
-                            path,
-                            new_content: current_content.clone(),
-                            original_content: original,
-                            language: current_lang.take(),
+                // A ``` line inside a code block: only treat as closing fence if
+                // it's bare (empty or whitespace only). Lines like ```rust are
+                // nested fences the LLM sometimes emits — treat as content.
+                if header.trim().is_empty() {
+                    // End of code block — only emit an operation if we captured content
+                    if let Some(path) = current_path.take() {
+                        let trimmed = current_content.trim();
+                        if !trimmed.is_empty() {
+                            let full_path = project_root.join(&path);
+                            let op = if full_path.exists() {
+                                let original = fs::read_to_string(&full_path).ok();
+                                FileOperation::Edit {
+                                    path,
+                                    new_content: current_content.clone(),
+                                    original_content: original,
+                                    language: current_lang.take(),
+                                }
+                            } else {
+                                FileOperation::Create {
+                                    path,
+                                    content: current_content.clone(),
+                                    language: current_lang.take(),
+                                }
+                            };
+                            operations.push(op);
                         }
-                    } else {
-                        FileOperation::Create {
-                            path,
-                            content: current_content.clone(),
-                            language: current_lang.take(),
-                        }
-                    };
-                    operations.push(op);
+                    }
+                    current_content.clear();
+                    in_code_block = false;
                 }
-                current_content.clear();
-                in_code_block = false;
+                // else: nested fence like ```rust — skip it (don't add to content)
             } else {
                 // Start of code block - parse the header
                 let (lang, path) = parse_code_block_header(header);

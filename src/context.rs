@@ -114,10 +114,11 @@ impl ContextManager {
         let mut skipped = Vec::new();
 
         // Walk the directory recursively
+        // Skip hidden/ignored entries, but always allow the root directory the user explicitly requested
         for entry in walkdir::WalkDir::new(&full_path)
             .follow_links(false)
             .into_iter()
-            .filter_entry(|e| !is_hidden(e) && !is_ignored_dir(e))
+            .filter_entry(|e| e.path() == full_path || (!is_hidden(e) && !is_ignored_dir(e)))
         {
             let entry = match entry {
                 Ok(e) => e,

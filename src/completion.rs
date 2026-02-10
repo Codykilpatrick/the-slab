@@ -473,8 +473,8 @@ impl Completer for FileCompleter {
                 let name = entry.file_name();
                 let name_str = name.to_string_lossy();
 
-                // Skip hidden files unless enabled
-                if !self.show_hidden && name_str.starts_with('.') {
+                // Skip hidden files unless user typed a dot prefix
+                if !self.show_hidden && !prefix.starts_with('.') && name_str.starts_with('.') {
                     continue;
                 }
 

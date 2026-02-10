@@ -1,16 +1,59 @@
 name: code_review
 command: /review
-description: Review code for issues and improvements
-variables:
-  - name: focus
-    default: all
+description: Review translated Rust code against rust.md rules
 prompt: |
-  Review the following code, focusing on {{focus}}:
+  Review the Rust code in the current package against the rules in .slab/rules/rust.md.
 
-  {{content}}
+  For each issue found:
+  1. Reference the rule number violated (e.g., "Rule 18")
+  2. Cite the file and line number
+  3. Describe what's wrong and what the fix should be
+  4. Rate severity: **build-breaker**, **idiom violation**, or **nit**
 
-  Please identify:
-  1. Potential bugs or issues
-  2. Performance concerns
-  3. Style/readability improvements
-  4. Security considerations
+  Also save the full report as a file using this syntax:
+
+  ```markdown:.slab/reviews/review.md
+  (full report content here)
+  ```
+
+  Check specifically for:
+  - Compilation errors (unsigned negation, type mismatches, unused imports)
+  - C idioms that weren't converted (magic numbers, output params, dead code)
+  - Type choices that cause unnecessary casts at usage sites
+  - Missing trait impls (Default, Display)
+  - .unwrap()/.expect() in non-test code
+  - Tests that only cover constructors, not logic/edge cases/error paths
+
+  Output a summary to the terminal in this structure:
+
+  ```markdown
+  # Review: {{package}}
+
+  ## Summary
+  - **Build**: pass/fail
+  - **Rules violated**: [list rule numbers]
+  - **Issues**: N build-breakers, N idiom violations, N nits
+
+  ## Issues
+
+  ### [severity] Rule N — short description
+  **File:** `src/lib.rs:NN`
+  **Problem:** what's wrong
+  **Fix:** what to do
+
+  (repeat for each issue)
+
+  ## Checklist
+  - [ ] All #define type constants are Rust enums
+  - [ ] No dead code carried from C
+  - [ ] usize for counts/indices/sizes
+  - [ ] No output parameters
+  - [ ] No unnecessary &mut self
+  - [ ] No hardcoded buffer sizes
+  - [ ] Structs built with literals
+  - [ ] Default implemented where applicable
+  - [ ] No .unwrap()/.expect() outside tests
+  - [ ] Doc comments match Rust signatures
+  - [ ] Tests cover logic, edge cases, and error paths
+  - [ ] cargo clippy passes with zero warnings
+  ```

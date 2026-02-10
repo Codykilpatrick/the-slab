@@ -4,7 +4,16 @@ description: Translate C code to idiomatic Rust
 prompt: |
   Translate the attached C code to idiomatic Rust.
 
-  If a bindings.rs file is attached, it contains existing FFI definitions
-  that should NOT be re-translated. Reference them as imports where needed.
-
-  Output only the Rust code in a ```rust block.
+  Requirements:
+  - Create actual .rs file(s), not just code blocks
+  - If bindings.rs is attached, import FFI definitions rather than redefining them
+  - Minimize unsafe blocks; document why each is necessary
+  - Use Result<T, E> for error handling (map errno/return codes appropriately)
+  - Prefer standard library types over raw pointers where possible
+  - Add // SAFETY: comments for all unsafe code
+  - C #define type constants (TYPE_FOO = 1, etc.) must become Rust enums — never raw integers
+  - Convert C output-parameter patterns to Rust return values
+  - Remove dead code from the C original; do not preserve unused computations
+  - Choose Rust-native types (usize for counts/indices, matching float types for thresholds)
+  - Never negate unsigned types directly — cast to isize/i32 BEFORE negating
+  - All code must pass `cargo clippy` with zero warnings

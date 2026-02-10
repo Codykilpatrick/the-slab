@@ -547,25 +547,25 @@ REQUIREMENTS:
 6. Follow Rust naming conventions (snake_case for functions/variables, CamelCase for types)
 7. Add appropriate derive macros (Debug, Clone, etc.) where useful
 8. The code must compile with `cargo build` without warnings
-9. The code must pass `cargo clippy` with no warnings
-10. NEVER use `OnceLock`, `Lazy`, `static mut`, `Rc`, `RefCell`, or any global/static storage. Encapsulate ALL state into owned structs with methods. If the C code has free-standing functions that operate on global state, convert them to methods on the struct - do NOT create wrapper functions with hidden global state. The caller is responsible for creating and owning the struct instance.
-11. Do NOT include unused imports - only import what is actually used in the code.
-12. Use `match` expressions for branching instead of if/else chains where possible.
-13. Use iterators (`.iter()`, `.map()`, `.filter()`, `.collect()`) instead of manual loops where possible.
-14. Keep code concise - avoid verbose getter/setter boilerplate when direct public field access or builder patterns would be more idiomatic.
-15. NEVER negate unsigned integers directly. Cast to the signed type BEFORE negating: use `-(x as i32)` not `-(x)` where x is u32. For zigzag decoding use wrapping operations like `.wrapping_neg()` or explicit casts.
-16. C `union` types must be translated to Rust `enum` variants with data, NOT Rust `union`. Avoid `#[repr(C, packed)]` - instead model the wire format with serialization/deserialization methods that read and write byte slices.
-17. Never return `&mut T` references from methods that also require `&mut self` - this causes multiple mutable borrow errors. Instead return indices or owned handles, and provide separate methods to access elements by index.
-
-C Header:
-```c
-{c_header}
-```
-
-C Source:
-```c
-{c_code}
-```
+9.  NEVER use `OnceLock`, `Lazy`, `static mut`, `Rc`, `RefCell`, or any global/static storage. Encapsulate ALL state into owned structs with methods. If the C code has free-standing functions that operate on global state, convert them to methods on the struct - do NOT create wrapper functions with hidden global state. The caller is responsible for creating and owning the struct instance.
+10. Do NOT include unused imports - only import what is actually used in the code.
+11. Use `match` expressions for branching instead of if/else chains where possible.
+12. Use iterators (`.iter()`, `.map()`, `.filter()`, `.collect()`) instead of manual loops where possible.
+13. Keep code concise - avoid verbose getter/setter boilerplate when direct public field access or builder patterns would be more idiomatic.
+14. NEVER negate unsigned integers directly. Cast to the signed type BEFORE negating: use `-(x as i32)` not `-(x)` where x is u32. For zigzag decoding use wrapping operations like `.wrapping_neg()` or explicit casts.
+15. C `union` types must be translated to Rust `enum` variants with data, NOT Rust `union`. Avoid `#[repr(C, packed)]` - instead model the wire format with serialization/deserialization methods that read and write byte slices.
+16. Never return `&mut T` references from methods that also require `&mut self` - this causes multiple mutable borrow errors. Instead return indices or owned handles, and provide separate methods to access elements by index.
+17. C `#define` integer constants used as type tags/categories (e.g., `#define TYPE_FOO 1`) MUST become Rust enums with `Display` impl. Never use raw integers with magic numbers for classification.
+18. Remove dead code from the C original. If a variable is computed but never read (like a running total that's never used), delete it — do NOT preserve it with an underscore prefix.
+19. Choose Rust-native types. Don't mechanically map C `int` to `i32`. Use `usize` for counts, indices, and sizes. Use `f32`/`f64` for thresholds that are compared against floats. Use the type that makes casts unnecessary at usage sites.
+20. Convert C output-parameter patterns (`void foo(float *out, int len)`) to Rust return values (`fn foo() -> Vec<f32>`). Functions should return owned data, not write to caller-provided buffers.
+21. Methods that don't read or write `self` must not take `self`. Make them associated functions (`fn foo() -> T`, no self) or free functions. Never add `&mut self` just because a method lives in an `impl` block.
+22. Do not carry over C `#define MAX_FOO` buffer sizes as hardcoded allocations. Size containers dynamically to actual input (e.g., `Vec::with_capacity(input.len())`). If a limit is needed, make it a parameter or config field.
+23. Prefer struct literal initialization over `new()` + field-by-field mutation. Build the complete struct in one expression.
+24. Implement the `Default` trait for any type that has a `new()` taking no arguments. Derive it when field defaults match Rust's defaults (0, false, None); implement manually otherwise.
+25. Never use `.unwrap()` or `.expect()` in library code. Use `?` with proper error types, or validate inputs at function entry and return `Result`. Panicking conversions like `.try_into().unwrap()` indicate a wrong type choice (see rule 20).
+26. Doc comments must accurately describe the Rust function signature. Do not copy C comments verbatim if the return type or parameters changed. If the C function returned `int` count and the Rust function returns `Vec<T>`, update the docs.
+27. Write tests that exercise core logic, not just constructors. Include: a basic happy-path test with known input/output, at least one edge case (empty input, boundary values), and a test that verifies error/failure paths.
 "#;
     std::fs::write(".slab/rules/rust.md", rust_rules)?;
 
@@ -709,20 +709,59 @@ const foregroundColor = "#006adc";
     // Create templates
     let review_template = r#"name: code_review
 command: /review
-description: Review code for issues and improvements
-variables:
-  - name: focus
-    default: all
+description: Review translated Rust code against rust.md rules
 prompt: |
-  Review the following code, focusing on {{focus}}:
+  Review the Rust code in the current package against the rules in .slab/rules/rust.md.
 
-  {{content}}
+  For each issue found:
+  1. Reference the rule number violated (e.g., "Rule 18")
+  2. Cite the file and line number
+  3. Describe what's wrong and what the fix should be
+  4. Rate severity: **build-breaker**, **idiom violation**, or **nit**
 
-  Please identify:
-  1. Potential bugs or issues
-  2. Performance concerns
-  3. Style/readability improvements
-  4. Security considerations
+  After outputting the review to the terminal, save the full report by writing it as a fenced code block with the path, like: ```markdown:.slab/reviews/{{package}}.md
+
+  Check specifically for:
+  - Compilation errors (unsigned negation, type mismatches, unused imports)
+  - C idioms that weren't converted (magic numbers, output params, dead code)
+  - Type choices that cause unnecessary casts at usage sites
+  - Missing trait impls (Default, Display)
+  - .unwrap()/.expect() in non-test code
+  - Tests that only cover constructors, not logic/edge cases/error paths
+
+  Output a summary to the terminal in this structure:
+
+  ```markdown
+  # Review: {{package}}
+
+  ## Summary
+  - **Build**: pass/fail
+  - **Rules violated**: [list rule numbers]
+  - **Issues**: N build-breakers, N idiom violations, N nits
+
+  ## Issues
+
+  ### [severity] Rule N — short description
+  **File:** `src/lib.rs:NN`
+  **Problem:** what's wrong
+  **Fix:** what to do
+
+  (repeat for each issue)
+
+  ## Checklist
+  - [ ] All #define type constants are Rust enums
+  - [ ] No dead code carried from C
+  - [ ] usize for counts/indices/sizes
+  - [ ] No output parameters
+  - [ ] No unnecessary &mut self
+  - [ ] No hardcoded buffer sizes
+  - [ ] Structs built with literals
+  - [ ] Default implemented where applicable
+  - [ ] No .unwrap()/.expect() outside tests
+  - [ ] Doc comments match Rust signatures
+  - [ ] Tests cover logic, edge cases, and error paths
+  - [ ] cargo clippy passes with zero warnings
+  ```
 "#;
     std::fs::write(".slab/templates/review.yaml", review_template)?;
 
@@ -732,10 +771,19 @@ description: Translate C code to idiomatic Rust
 prompt: |
   Translate the attached C code to idiomatic Rust.
 
-  If a bindings.rs file is attached, it contains existing FFI definitions
-  that should NOT be re-translated. Reference them as imports where needed.
-
-  Output only the Rust code in a ```rust block.
+  Requirements:
+  - Create actual .rs file(s), not just code blocks
+  - If bindings.rs is attached, import FFI definitions rather than redefining them
+  - Minimize unsafe blocks; document why each is necessary
+  - Use Result<T, E> for error handling (map errno/return codes appropriately)
+  - Prefer standard library types over raw pointers where possible
+  - Add // SAFETY: comments for all unsafe code
+  - C #define type constants (TYPE_FOO = 1, etc.) must become Rust enums — never raw integers
+  - Convert C output-parameter patterns to Rust return values
+  - Remove dead code from the C original; do not preserve unused computations
+  - Choose Rust-native types (usize for counts/indices, matching float types for thresholds)
+  - Never negate unsigned types directly — cast to isize/i32 BEFORE negating
+  - All code must pass `cargo clippy` with zero warnings
 "#;
     std::fs::write(".slab/templates/c-to-rust.yaml", c_to_rust_template)?;
 
