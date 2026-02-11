@@ -170,6 +170,8 @@ When you need to create or modify files, output them as fenced code blocks with 
 file contents here
 ```
 
+CRITICAL: You MUST include the COMPLETE file contents in the code block — every single line of the file, not just the lines you changed. The code block replaces the entire file. If you only output the changed function or a snippet, all other code in the file will be lost. When modifying an existing file, reproduce the full file with your changes applied.
+
 Examples:
 - ```rust:src/main.rs for Rust files
 - ```python:script.py for Python files

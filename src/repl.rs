@@ -1646,6 +1646,42 @@ impl Repl {
             return Ok(());
         }
 
+        // Filter out edits that would truncate files (LLM output only a snippet)
+        let mut truncated = Vec::new();
+        let safe_indices: Vec<usize> = safe_indices
+            .into_iter()
+            .filter(|&i| {
+                if let Some((orig, new)) = operations[i].truncation_check() {
+                    truncated.push((i, orig, new));
+                    false
+                } else {
+                    true
+                }
+            })
+            .collect();
+
+        if !truncated.is_empty() {
+            println!();
+            for &(i, orig, new) in &truncated {
+                println!(
+                    "{} {} — blocked edit to {} ({} → {} lines). The model likely output only a snippet instead of the complete file.",
+                    style("⚠").red(),
+                    style("TRUNCATION BLOCKED").red().bold(),
+                    style(operations[i].path().display()).cyan(),
+                    orig,
+                    new,
+                );
+            }
+        }
+
+        if safe_indices.is_empty() && !truncated.is_empty() {
+            println!(
+                "{} All edits were blocked due to truncation. Ask the model to output the complete file.",
+                style("⚠").yellow()
+            );
+            return Ok(());
+        }
+
         let approved = if self.config.ui.auto_apply_file_ops {
             // Auto-apply mode: show what we're doing and apply all safe operations
             println!();

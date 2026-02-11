@@ -92,6 +92,29 @@ impl FileOperation {
         Ok(())
     }
 
+    /// Check if an edit operation appears to be a truncation.
+    /// Returns Some((original_lines, new_lines)) if the new content is
+    /// suspiciously shorter than the original, suggesting the LLM only
+    /// output a snippet instead of the complete file.
+    pub fn truncation_check(&self) -> Option<(usize, usize)> {
+        if let FileOperation::Edit {
+            new_content,
+            original_content: Some(original),
+            ..
+        } = self
+        {
+            let original_lines = original.lines().count();
+            let new_lines = new_content.lines().count();
+
+            // Only flag files that had meaningful content (>10 lines) and
+            // where the new content is less than half the original size.
+            if original_lines > 10 && new_lines < original_lines / 2 {
+                return Some((original_lines, new_lines));
+            }
+        }
+        None
+    }
+
     /// Generate a preview of this operation
     pub fn preview(&self) -> String {
         match self {
@@ -600,11 +623,19 @@ fn short_preview(op: &FileOperation) -> String {
             )
         }
         FileOperation::Edit { path, .. } => {
-            format!(
+            let mut s = format!(
                 "{} {}",
                 style("EDIT").yellow(),
                 style(path.display()).cyan()
-            )
+            );
+            if let Some((orig, new)) = op.truncation_check() {
+                s.push_str(&format!(
+                    " {} {}",
+                    style("⚠ TRUNCATION WARNING:").red().bold(),
+                    style(format!("{} → {} lines (file would lose >50% of its content)", orig, new)).red()
+                ));
+            }
+            s
         }
         FileOperation::Delete { path, .. } => {
             format!("{} {}", style("DELETE").red(), style(path.display()).cyan())
@@ -733,5 +764,53 @@ print("test")
 
         let path = parse_delete_marker("delete this file");
         assert_eq!(path, None);
+    }
+
+    #[test]
+    fn test_truncation_check() {
+        // 20-line original, 3-line replacement → should flag
+        let original = "line\n".repeat(20);
+        let new_content = "fn main() {\n    println!(\"hi\");\n}\n".to_string();
+        let op = FileOperation::Edit {
+            path: PathBuf::from("src/main.rs"),
+            new_content,
+            original_content: Some(original),
+            language: Some("rust".to_string()),
+        };
+        let result = op.truncation_check();
+        assert!(result.is_some());
+        let (orig, new) = result.unwrap();
+        assert_eq!(orig, 20);
+        assert!(new < 10);
+
+        // 20-line original, 18-line replacement → should NOT flag
+        let original = "line\n".repeat(20);
+        let new_content = "line\n".repeat(18);
+        let op = FileOperation::Edit {
+            path: PathBuf::from("src/main.rs"),
+            new_content,
+            original_content: Some(original),
+            language: Some("rust".to_string()),
+        };
+        assert!(op.truncation_check().is_none());
+
+        // Small file (5 lines) → should NOT flag even if shrunk
+        let original = "line\n".repeat(5);
+        let new_content = "x\n".to_string();
+        let op = FileOperation::Edit {
+            path: PathBuf::from("src/small.rs"),
+            new_content,
+            original_content: Some(original),
+            language: None,
+        };
+        assert!(op.truncation_check().is_none());
+
+        // Create operations should never flag
+        let op = FileOperation::Create {
+            path: PathBuf::from("src/new.rs"),
+            content: "fn main() {}\n".to_string(),
+            language: None,
+        };
+        assert!(op.truncation_check().is_none());
     }
 }
