@@ -17,3 +17,5 @@ prompt: |
   - Choose Rust-native types (usize for counts/indices, matching float types for thresholds)
   - Never negate unsigned types directly — cast to isize/i32 BEFORE negating
   - All code must pass `cargo clippy` with zero warnings
+
+  {{files}}

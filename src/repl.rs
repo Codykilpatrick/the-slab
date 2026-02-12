@@ -274,6 +274,7 @@ impl Repl {
         self.print_prompt();
 
         let mut input = String::new();
+        let mut cursor_pos: usize = 0;
         let mut stdout = io::stdout();
         let mut history_index = self.history.len();
         let mut saved_input = String::new();
@@ -327,9 +328,38 @@ impl Repl {
                                     // Accept first character of preview
                                     let first_char = preview.chars().next().unwrap();
                                     input.push(first_char);
+                                    cursor_pos = input.len();
                                     print!("{}", first_char);
                                     stdout.flush().ok();
                                 }
+                            } else if cursor_pos < input.len() {
+                                cursor_pos += 1;
+                                print!("\x1b[C");
+                                stdout.flush().ok();
+                            }
+                        }
+                        // Left arrow - move cursor left
+                        (KeyCode::Left, _) => {
+                            if cursor_pos > 0 {
+                                cursor_pos -= 1;
+                                print!("\x1b[D");
+                                stdout.flush().ok();
+                            }
+                        }
+                        // Home - move cursor to start
+                        (KeyCode::Home, _) => {
+                            if cursor_pos > 0 {
+                                print!("\x1b[{}D", cursor_pos);
+                                cursor_pos = 0;
+                                stdout.flush().ok();
+                            }
+                        }
+                        // End - move cursor to end
+                        (KeyCode::End, _) => {
+                            if cursor_pos < input.len() {
+                                print!("\x1b[{}C", input.len() - cursor_pos);
+                                cursor_pos = input.len();
+                                stdout.flush().ok();
                             }
                         }
                         // Up arrow - history back
@@ -341,8 +371,9 @@ impl Repl {
                                 }
                                 history_index -= 1;
                                 // Clear current line
-                                self.clear_input(&input);
+                                self.clear_input(&input, cursor_pos);
                                 input = self.history[history_index].clone();
+                                cursor_pos = input.len();
                                 print!("{}", input);
                                 stdout.flush().ok();
                             }
@@ -351,13 +382,14 @@ impl Repl {
                         (KeyCode::Down, _) => {
                             if history_index < self.history.len() {
                                 // Clear current line
-                                self.clear_input(&input);
+                                self.clear_input(&input, cursor_pos);
                                 history_index += 1;
                                 if history_index == self.history.len() {
                                     input = saved_input.clone();
                                 } else {
                                     input = self.history[history_index].clone();
                                 }
+                                cursor_pos = input.len();
                                 print!("{}", input);
                                 stdout.flush().ok();
                             }
@@ -367,8 +399,9 @@ impl Repl {
                             let completions = self.get_completions(&input);
                             if completions.len() == 1 {
                                 // Single match - auto-complete
-                                self.clear_input(&input);
+                                self.clear_input(&input, cursor_pos);
                                 input = completions[0].0.clone();
+                                cursor_pos = input.len();
                                 print!("{}", input);
                                 stdout.flush().ok();
                             } else if !completions.is_empty() {
@@ -386,23 +419,55 @@ impl Repl {
                         }
                         // Backspace
                         (KeyCode::Backspace, _) => {
-                            if !input.is_empty() {
-                                input.pop();
-                                print!("\x08 \x08");
+                            if cursor_pos > 0 {
+                                input.remove(cursor_pos - 1);
+                                cursor_pos -= 1;
+                                // Move cursor back, reprint rest of line, clear trailing char
+                                print!("\x08");
+                                let tail = &input[cursor_pos..];
+                                print!("{} ", tail);
+                                // Move cursor back to position
+                                let move_back = tail.len() + 1;
+                                for _ in 0..move_back {
+                                    print!("\x08");
+                                }
+                                stdout.flush().ok();
+                            }
+                        }
+                        // Delete key
+                        (KeyCode::Delete, _) => {
+                            if cursor_pos < input.len() {
+                                input.remove(cursor_pos);
+                                // Reprint rest of line, clear trailing char
+                                let tail = &input[cursor_pos..];
+                                print!("{} ", tail);
+                                let move_back = tail.len() + 1;
+                                for _ in 0..move_back {
+                                    print!("\x08");
+                                }
                                 stdout.flush().ok();
                             }
                         }
                         // Regular character
                         (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
-                            input.push(c);
-                            print!("{}", c);
+                            input.insert(cursor_pos, c);
+                            cursor_pos += 1;
+                            // Print from cursor position onward
+                            let tail = &input[cursor_pos - 1..];
+                            print!("{}", tail);
+                            // Move cursor back to correct position
+                            let move_back = tail.len() - 1;
+                            for _ in 0..move_back {
+                                print!("\x08");
+                            }
                             stdout.flush().ok();
                         }
                         _ => {}
                     }
 
-                    // Show inline preview after input changes
-                    if (input.starts_with('/') || input.contains('@'))
+                    // Show inline preview after input changes (only when cursor is at end)
+                    if cursor_pos == input.len()
+                        && (input.starts_with('/') || input.contains('@'))
                         && self.config.ui.inline_completion_preview
                     {
                         if let Some(preview) = self.get_inline_preview(&input) {
@@ -424,9 +489,18 @@ impl Repl {
     }
 
     /// Clear the input text from the terminal
-    fn clear_input(&self, input: &str) {
+    fn clear_input(&self, input: &str, cursor_pos: usize) {
+        // Move cursor to start of input
+        if cursor_pos > 0 {
+            print!("\x1b[{}D", cursor_pos);
+        }
+        // Overwrite entire input with spaces
         for _ in 0..input.len() {
-            print!("\x08 \x08");
+            print!(" ");
+        }
+        // Move back to start
+        if !input.is_empty() {
+            print!("\x1b[{}D", input.len());
         }
     }
 
