@@ -418,7 +418,9 @@ async fn list_models(client: &OllamaClient, names_only: bool) -> Result<()> {
 
 fn list_sessions(names_only: bool) -> Result<()> {
     let sessions_dir = config::find_project_root()
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+        .unwrap_or_else(|| {
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+        })
         .join(".slab/sessions");
 
     if !sessions_dir.exists() {

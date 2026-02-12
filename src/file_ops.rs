@@ -632,7 +632,11 @@ fn short_preview(op: &FileOperation) -> String {
                 s.push_str(&format!(
                     " {} {}",
                     style("⚠ TRUNCATION WARNING:").red().bold(),
-                    style(format!("{} → {} lines (file would lose >50% of its content)", orig, new)).red()
+                    style(format!(
+                        "{} → {} lines (file would lose >50% of its content)",
+                        orig, new
+                    ))
+                    .red()
                 ));
             }
             s
