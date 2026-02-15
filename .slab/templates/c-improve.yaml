@@ -1,0 +1,29 @@
+name: c-improve
+command: /c-improve
+description: Refactor C code to safer, more robust C following MISRA/CERT standards
+prompt: |
+  Refactor the attached C code into safer, more robust C.
+
+  Requirements:
+  1. Use fixed-width types (stdint.h) - uint32_t, int64_t, size_t, etc.
+  2. Add explicit error handling with enum return codes
+  3. Remove all static/global state - pass context explicitly
+  4. Add const correctness for all read-only parameters
+  5. Add restrict keywords for non-aliasing pointers
+  6. Add NULL pointer checks at function entry
+  7. Add bounds checking for array accesses
+  8. Use bool from stdbool.h instead of int flags
+  9. Add comprehensive function documentation
+  10. Keep cyclomatic complexity < 10
+  11. Maximum function length: 50 lines
+  12. MAINTAIN PERFORMANCE - no heap allocations in hot paths
+
+  Target standards: MISRA C:2012, CERT C
+
+  Provide:
+  1. Refactored function(s)
+  2. Required struct definitions
+  3. Error code enums
+  4. Brief explanation of safety improvements
+
+  {{files}}
