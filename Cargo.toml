@@ -1,6 +1,6 @@
 [package]
 name = "slab"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 description = "An offline CLI tool for local LLMs via Ollama"
 license = "MIT"

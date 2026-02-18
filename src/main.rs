@@ -811,11 +811,21 @@ prompt: |
 
   Target standards: MISRA C:2012, CERT C
 
-  Provide:
-  1. Refactored function(s)
-  2. Required struct definitions
-  3. Error code enums
-  4. Brief explanation of safety improvements
+  IMPORTANT: Output the COMPLETE refactored file inside a fenced code block
+  annotated with the target file path using this exact format:
+
+  ```c:{{content}}
+  // complete refactored code here
+  ```
+
+  The path after the colon is critical — it tells the system which file to
+  create or overwrite. You MUST include every line of the file, not just
+  changed sections. Do NOT omit any code or use "// ... rest unchanged"
+  placeholders.
+
+  After the code block, provide a brief explanation of the safety improvements made.
+
+  {{files}}
 "#;
     std::fs::write(".slab/templates/c-improve.yaml", c_improve_template)?;
 

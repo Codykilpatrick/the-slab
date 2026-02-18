@@ -1503,12 +1503,10 @@ impl Repl {
         // Re-print with syntax highlighting if there are code blocks
         if full_response.contains("```") {
             println!();
-            println!("{}", style("─".repeat(50)).dim());
             let highlighted = self.highlighter.format_response(&full_response);
             for line in highlighted.lines() {
-                println!("{} {}", style("┃").blue(), line);
+                println!("{}", line);
             }
-            println!("{}", style("─".repeat(50)).dim());
         }
 
         println!();
@@ -1566,10 +1564,10 @@ impl Repl {
         if response.contains("```") {
             let highlighted = self.highlighter.format_response(&response);
             for line in highlighted.lines() {
-                println!("{} {}", style("┃").blue(), line);
+                println!("{}", line);
             }
         } else {
-            println!("{} {}", style("┃").blue(), response);
+            println!("{}", response);
         }
         println!();
 
