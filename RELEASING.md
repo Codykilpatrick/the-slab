@@ -13,9 +13,17 @@ Pushing a `v*` tag to `main` triggers the release workflow automatically. It bui
 
 ## Steps
 
-### 1. Make sure CI is green
+### 1. Lint, format, and test locally
 
-All commits to `main` run the CI workflow (build + test + clippy + fmt). Verify it's passing before cutting a release.
+Run these before touching the version:
+
+```bash
+cargo fmt
+cargo clippy -- -D warnings
+cargo test
+```
+
+All three must pass cleanly. Fix any issues before proceeding.
 
 ### 2. Bump the version
 
