@@ -37,6 +37,9 @@ pub struct ContextManager {
 
     /// Directory from which the user started the chat session (for resolving user-supplied file paths)
     initial_cwd: PathBuf,
+
+    /// When true, all context files are re-read from disk before each LLM call
+    watch_mode: bool,
 }
 
 impl ContextManager {
@@ -50,6 +53,7 @@ impl ContextManager {
             token_budget,
             project_root,
             initial_cwd,
+            watch_mode: true,
         }
     }
 
@@ -391,6 +395,34 @@ impl ContextManager {
             caps[0].to_string()
         })
         .into_owned()
+    }
+
+    /// Enable or disable auto-refresh of context files before LLM calls
+    pub fn set_watch_mode(&mut self, enabled: bool) {
+        self.watch_mode = enabled;
+    }
+
+    pub fn watch_mode(&self) -> bool {
+        self.watch_mode
+    }
+
+    /// Re-read all tracked context files from disk.
+    /// Returns a Vec of paths that were successfully refreshed.
+    /// Files that can no longer be read are left unchanged in context.
+    pub fn refresh_files(&mut self) -> Vec<PathBuf> {
+        let mut refreshed = Vec::new();
+        for (display_path, content) in self.files.iter_mut() {
+            let full_path = if display_path.is_absolute() {
+                display_path.clone()
+            } else {
+                self.initial_cwd.join(display_path)
+            };
+            if let Ok(new_content) = fs::read_to_string(&full_path) {
+                *content = new_content;
+                refreshed.push(display_path.clone());
+            }
+        }
+        refreshed
     }
 
     /// Get a summary of context state

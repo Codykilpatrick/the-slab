@@ -323,12 +323,15 @@ impl Repl {
                         // Normalize line endings (\r\n and \r → \n)
                         let normalized = pasted_text.replace("\r\n", "\n").replace('\r', "\n");
 
+                        // Capture screen cursor position (in visual chars) before mutating buffer
+                        let screen_cursor_pos = cursor_pos;
+
                         // Insert full pasted string at cursor position (single O(n) operation)
                         input.insert_str(cursor_pos, &normalized);
                         cursor_pos += normalized.len();
 
                         // Redraw entire input line once
-                        self.redraw_full_input(&input, cursor_pos, &mut stdout);
+                        self.redraw_full_input(&input, cursor_pos, screen_cursor_pos, &mut stdout);
                     }
                     Ok(Event::Key(key_event)) => {
                         // Clear any existing preview before processing
@@ -570,22 +573,42 @@ impl Repl {
 
     /// Redraw entire input line after bulk insert (paste).
     /// Replaces per-character rendering for O(n) single-pass redraw.
-    fn redraw_full_input(&self, input: &str, cursor_pos: usize, stdout: &mut impl io::Write) {
+    ///
+    /// `screen_cursor_pos` is the byte offset in `input` where the terminal
+    /// cursor currently sits (i.e. the position *before* the paste was inserted).
+    /// This differs from `cursor_pos` (the desired position after redraw) and
+    /// must be used for the initial backward movement so we don't overshoot into
+    /// the prompt / context-bar area.
+    fn redraw_full_input(
+        &self,
+        input: &str,
+        cursor_pos: usize,
+        screen_cursor_pos: usize,
+        stdout: &mut impl io::Write,
+    ) {
         // Replace internal newlines with visible glyph for single-line display
         let visual: String = input.replace('\n', "↵");
 
-        // Visual column count of text before cursor
+        // Visual column count of text before the *desired* cursor position
         let before_visual_len = input[..cursor_pos].replace('\n', "↵").chars().count();
 
-        // Move cursor back to start of input
-        if before_visual_len > 0 {
-            print!("\x1b[{}D", before_visual_len);
+        // Visual column count of text before the *current screen* cursor —
+        // this is how far back we need to move to reach the start of input.
+        let screen_visual_len = input[..screen_cursor_pos]
+            .replace('\n', "↵")
+            .chars()
+            .count();
+
+        // Move cursor back to start of input (based on where it actually is on
+        // screen, not where we want it to end up after the redraw).
+        if screen_visual_len > 0 {
+            print!("\x1b[{}D", screen_visual_len);
         }
 
         // Print full visual line
         print!("{}", visual);
 
-        // Move cursor back to cursor_pos (paste inserts at end so this is often 0)
+        // Move cursor back to cursor_pos
         let tail_visual_len = visual.chars().count() - before_visual_len;
         if tail_visual_len > 0 {
             print!("\x1b[{}D", tail_visual_len);
@@ -984,79 +1007,86 @@ impl Repl {
             }
             "add" => {
                 if parts.len() < 2 {
-                    println!("{} /add <file|directory>", style("Usage:").dim());
+                    println!(
+                        "{} /add <file|directory> [file2 ...]",
+                        style("Usage:").dim()
+                    );
                     return Ok(true);
                 }
-                let path = parts[1..].join(" ");
-
-                // Check if it's a directory
-                if self.context.is_directory(&path) {
-                    match self.context.add_directory(&path) {
-                        Ok((added, skipped)) => {
-                            println!(
-                                "{} Added {} file(s) from {} to context",
-                                style("✓").green(),
-                                style(added).cyan(),
-                                style(&path).cyan()
-                            );
-                            if !skipped.is_empty() && skipped.len() <= 5 {
-                                println!("{} Skipped:", style("⚠").yellow());
-                                for s in &skipped {
-                                    println!("    {}", style(s).dim());
-                                }
-                            } else if !skipped.is_empty() {
+                let mut any_change = false;
+                for path in &parts[1..] {
+                    if self.context.is_directory(path) {
+                        match self.context.add_directory(path) {
+                            Ok((added, skipped)) => {
+                                any_change = true;
                                 println!(
-                                    "{} Skipped {} file(s) (binary/unreadable)",
-                                    style("⚠").yellow(),
-                                    skipped.len()
+                                    "{} Added {} file(s) from {} to context",
+                                    style("✓").green(),
+                                    style(added).cyan(),
+                                    style(path).cyan()
+                                );
+                                if !skipped.is_empty() && skipped.len() <= 5 {
+                                    println!("{} Skipped:", style("⚠").yellow());
+                                    for s in &skipped {
+                                        println!("    {}", style(s).dim());
+                                    }
+                                } else if !skipped.is_empty() {
+                                    println!(
+                                        "{} Skipped {} file(s) (binary/unreadable)",
+                                        style("⚠").yellow(),
+                                        skipped.len()
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                println!("{} {}", style("Error:").red(), e);
+                            }
+                        }
+                    } else {
+                        match self.context.add_file(path) {
+                            Ok(()) => {
+                                any_change = true;
+                                println!(
+                                    "{} Added {} to context",
+                                    style("✓").green(),
+                                    style(path).cyan()
                                 );
                             }
-                            // Update rules based on new file list
-                            self.update_rules_for_context();
-                        }
-                        Err(e) => {
-                            println!("{} {}", style("Error:").red(), e);
+                            Err(e) => {
+                                println!("{} {}", style("Error:").red(), e);
+                            }
                         }
                     }
-                } else {
-                    // Single file
-                    match self.context.add_file(&path) {
-                        Ok(()) => {
-                            println!(
-                                "{} Added {} to context",
-                                style("✓").green(),
-                                style(&path).cyan()
-                            );
-                            // Update rules based on new file list
-                            self.update_rules_for_context();
-                        }
-                        Err(e) => {
-                            println!("{} {}", style("Error:").red(), e);
-                        }
-                    }
+                }
+                if any_change {
+                    self.update_rules_for_context();
                 }
                 Ok(true)
             }
             "remove" | "rm" => {
                 if parts.len() < 2 {
-                    println!("{} /remove <file>", style("Usage:").dim());
+                    println!("{} /remove <file> [file2 ...]", style("Usage:").dim());
                     return Ok(true);
                 }
-                let path = parts[1..].join(" ");
-                if self.context.remove_file(&path) {
-                    println!(
-                        "{} Removed {} from context",
-                        style("✓").green(),
-                        style(&path).cyan()
-                    );
-                    // Update rules based on new file list
+                let mut any_change = false;
+                for path in &parts[1..] {
+                    if self.context.remove_file(path) {
+                        any_change = true;
+                        println!(
+                            "{} Removed {} from context",
+                            style("✓").green(),
+                            style(path).cyan()
+                        );
+                    } else {
+                        println!(
+                            "{} File not in context: {}",
+                            style("✗").red(),
+                            style(path).cyan()
+                        );
+                    }
+                }
+                if any_change {
                     self.update_rules_for_context();
-                } else {
-                    println!(
-                        "{} File not in context: {}",
-                        style("✗").red(),
-                        style(&path).cyan()
-                    );
                 }
                 Ok(true)
             }
@@ -1085,6 +1115,19 @@ impl Repl {
                             style("disabled").yellow()
                         }
                     );
+                }
+                Ok(true)
+            }
+            "watch" => {
+                let enabled = !self.context.watch_mode();
+                self.context.set_watch_mode(enabled);
+                if enabled {
+                    println!(
+                        "{}",
+                        style("Watch mode ON — context files will be refreshed from disk before each LLM call.").green()
+                    );
+                } else {
+                    println!("{}", style("Watch mode OFF.").dim());
                 }
                 Ok(true)
             }
@@ -1256,6 +1299,11 @@ impl Repl {
                 }
                 Ok(true)
             }
+            "pwd" => {
+                let cwd = std::env::current_dir().unwrap_or_else(|_| self.project_root.clone());
+                println!("{}", style(cwd.display()).cyan());
+                Ok(true)
+            }
             _ => {
                 println!("{} {}", style("Unknown command:").red(), command);
                 println!("{}", style("Type /help for available commands.").dim());
@@ -1383,8 +1431,9 @@ impl Repl {
             ("/context", "Show context summary"),
             ("/tokens", "Show token usage"),
             ("/files", "List files in context"),
-            ("/add <path>", "Add file/directory to context"),
-            ("/remove <file>", "Remove file from context"),
+            ("/add <path> [...]", "Add file/directory to context"),
+            ("/remove <file> [...]", "Remove file from context"),
+            ("/pwd", "Print working directory"),
             ("/fileops [on|off]", "Toggle file operations"),
             ("/templates", "List available templates"),
             ("/rules", "Show loaded rules"),
@@ -1508,18 +1557,23 @@ impl Repl {
                  approximate token counts.",
             ),
             "add" => (
-                "/add <file|directory>",
+                "/add <file|directory> [file2 ...]",
                 "Add a file or directory to context",
                 "Adds file contents to the conversation context. If a directory is specified, \
-                 all files are added recursively.\n\n\
+                 all files are added recursively. Multiple paths can be specified.\n\n\
                  Directories skip: hidden files, node_modules, target, .git, binary files\n\n\
-                 Examples:\n  /add src/main.rs\n  /add src/\n  /add ../other/",
+                 Examples:\n  /add src/main.rs\n  /add src/main.rs src/lib.rs\n  /add src/\n  /add ../other/",
             ),
             "remove" | "rm" => (
-                "/remove <file>, /rm <file>",
+                "/remove <file> [file2 ...], /rm <file> [file2 ...]",
                 "Remove a file from context",
-                "Removes a previously added file from the context.\n\n\
-                 Example:\n  /remove src/main.rs",
+                "Removes one or more previously added files from the context.\n\n\
+                 Examples:\n  /remove src/main.rs\n  /remove src/main.rs src/lib.rs",
+            ),
+            "pwd" => (
+                "/pwd",
+                "Print working directory",
+                "Prints the current working directory.",
             ),
             "fileops" => (
                 "/fileops [on|off]",
@@ -1597,6 +1651,21 @@ impl Repl {
     }
 
     async fn send_message(&mut self, content: &str) -> Result<()> {
+        // If watch mode is on, refresh all context files from disk first
+        if self.context.watch_mode() {
+            let refreshed = self.context.refresh_files();
+            if !refreshed.is_empty() {
+                println!(
+                    "{}",
+                    style(format!(
+                        "↺  Refreshed {} file(s) from disk.",
+                        refreshed.len()
+                    ))
+                    .dim()
+                );
+            }
+        }
+
         // Expand @file references before sending to the LLM
         let expanded = self.context.expand_file_references(content);
         // Add the expanded message to context

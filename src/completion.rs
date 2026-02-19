@@ -381,6 +381,10 @@ impl CommandCompleter {
                 ("add".into(), "Add file or directory to context".into()),
                 ("remove".into(), "Remove file from context".into()),
                 ("fileops".into(), "Toggle file operations".into()),
+                (
+                    "watch".into(),
+                    "Toggle auto-refresh of context files".into(),
+                ),
                 ("templates".into(), "List available templates".into()),
                 ("rules".into(), "Show loaded rules".into()),
                 ("exec".into(), "Run a shell command".into()),

@@ -37,6 +37,7 @@
   - [Creating/Editing Files](#creatingediting-files)
   - [Deleting Files](#deleting-files)
   - [Auto-Apply Mode](#auto-apply-mode)
+  - [Watch Mode](#watch-mode)
   - [Customizing the System Prompt](#customizing-the-system-prompt)
 - [Running Commands](#running-commands)
   - [`/exec` REPL Command](#exec-repl-command)
@@ -205,6 +206,7 @@ For `slab chat`, files are loaded into context before the REPL starts (visible v
 | `/add <path>` | Add file or directory to context |
 | `/remove <file>` | Remove file from context |
 | `/fileops [on\|off]` | Toggle file operations |
+| `/watch` | Toggle auto-refresh of context files from disk before each LLM call (on by default) |
 | `/exec <command>` | Run a shell command and add output to context |
 | `/templates` | List available templates |
 | `/rules` | Show loaded rules |
@@ -392,6 +394,20 @@ auto_apply_file_ops = true
 ```
 
 When enabled, all safe file operations are applied immediately. Safety checks prevent relative-path traversal and writes into `.git/`. Absolute paths (e.g. from cross-project templates) are allowed through with user confirmation.
+
+### Watch Mode
+
+Watch mode keeps context files in sync with what's on disk. It is **enabled by default** — before every LLM call, The Slab re-reads all context files from disk so the model always sees the latest version, even after file operations have been applied.
+
+```text
+> /add src/main.c
+> /c-improve              # ↺  Refreshed 1 file(s) from disk. — then sends fresh content
+> /c-improve              # ↺  Refreshed 1 file(s) from disk. — iterates on latest version
+> /watch                  # Watch mode OFF.
+> /watch                  # Watch mode ON — context files will be refreshed from disk before each LLM call.
+```
+
+Toggle with `/watch`. When off, context files reflect their state at the time they were `/add`ed.
 
 ### Customizing the System Prompt
 

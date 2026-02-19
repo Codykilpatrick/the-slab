@@ -7,6 +7,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased]
+
+---
+
+## [0.6.1] - 2026-02-19
+
+### Added
+
+- **`/watch` command — auto-refresh context files** — context files are now re-read from disk before every LLM call by default, so the model always sees the latest on-disk state after file operations are applied. Toggle with `/watch`; enabled by default.
+
+### Fixed
+
+- **Pasted content overwrote context bar** — when pasting text (especially large files) into the REPL, the backward cursor movement used the post-paste input length instead of the pre-paste screen position, causing `\x1b[{}D` to overshoot past the start of the input and overwrite the prompt and context bar. The fix captures the screen cursor byte offset before mutating the input buffer and uses that for the initial backward movement.
+
+---
+
 ## [0.6.0] - 2026-02-19
 
 ### Added
