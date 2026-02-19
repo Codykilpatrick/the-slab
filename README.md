@@ -38,6 +38,9 @@
   - [Deleting Files](#deleting-files)
   - [Auto-Apply Mode](#auto-apply-mode)
   - [Customizing the System Prompt](#customizing-the-system-prompt)
+- [Running Commands](#running-commands)
+  - [`/exec` REPL Command](#exec-repl-command)
+  - [LLM-Triggered Execution](#llm-triggered-execution)
 - [Templates](#templates)
   - [Built-in Variables](#built-in-variables)
 - [Rules](#rules)
@@ -58,6 +61,7 @@
 - **100% Offline** - Works completely offline, perfect for air-gapped environments
 - **Streaming Responses** - Real-time streaming output from your local models
 - **File Operations** - Create and edit files directly from LLM responses with diff preview
+- **Command Execution** - Run shell commands via `/exec` or let the LLM trigger them with confirmation
 - **Context Management** - Add files to context, track token usage
 - **Prompt Templates** - Reusable templates with Handlebars syntax
 - **Rules Engine** - Persistent coding guidelines injected into every conversation
@@ -201,8 +205,10 @@ For `slab chat`, files are loaded into context before the REPL starts (visible v
 | `/add <path>` | Add file or directory to context |
 | `/remove <file>` | Remove file from context |
 | `/fileops [on\|off]` | Toggle file operations |
+| `/exec <command>` | Run a shell command and add output to context |
 | `/templates` | List available templates |
 | `/rules` | Show loaded rules |
+| `/rule enable\|disable <name>` | Enable or disable a rule |
 
 ### Keyboard Shortcuts
 
@@ -400,6 +406,34 @@ When creating files, use: ```language:path/to/file
 When deleting files, use: DELETE:path/to/file
 """
 ```
+
+## Running Commands
+
+The Slab can run shell commands in two ways.
+
+### `/exec` REPL Command
+
+Run a command directly from the REPL. The output is printed and automatically added to the conversation context so the model can see the results:
+
+```text
+/exec cargo build
+/exec podman exec mycontainer echo hello
+/exec ./scripts/deploy.sh
+```
+
+### LLM-Triggered Execution
+
+When you ask the model to build, test, or run something, it can output an `exec` or `run` fenced code block:
+
+````markdown
+``` exec
+cargo test
+```
+````
+
+You'll be prompted to confirm before anything runs. After execution, stdout, stderr, and the exit code are added to the conversation — the model can then see the results and fix errors automatically.
+
+Both mechanisms work on Unix (`sh -c`) and Windows (`cmd /C`).
 
 ## Templates
 
