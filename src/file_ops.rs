@@ -417,7 +417,11 @@ pub fn parse_exec_operations(text: &str) -> Vec<String> {
                     in_block = false;
                 }
                 // else: nested ```, treat as content
-            } else if header == "exec" || header == "run" || header.starts_with("exec:") || header.starts_with("run:") {
+            } else if header == "exec"
+                || header == "run"
+                || header.starts_with("exec:")
+                || header.starts_with("run:")
+            {
                 in_block = true;
                 content.clear();
             }

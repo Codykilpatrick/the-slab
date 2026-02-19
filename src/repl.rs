@@ -1070,7 +1070,11 @@ impl Repl {
                 Ok(true)
             }
             "exec" => {
-                let cmd_line = command.trim().strip_prefix("/exec").unwrap_or("").trim_start();
+                let cmd_line = command
+                    .trim()
+                    .strip_prefix("/exec")
+                    .unwrap_or("")
+                    .trim_start();
                 if cmd_line.is_empty() {
                     println!("{} /exec <shell command>", style("Usage:").dim());
                     println!(
@@ -1100,7 +1104,11 @@ impl Repl {
                         // Add command and output to context so the model has it
                         let stdout = String::from_utf8_lossy(&o.stdout);
                         let stderr = String::from_utf8_lossy(&o.stderr);
-                        let code = o.status.code().map(|c| c.to_string()).unwrap_or_else(|| "—".into());
+                        let code = o
+                            .status
+                            .code()
+                            .map(|c| c.to_string())
+                            .unwrap_or_else(|| "—".into());
                         let mut ctx_msg = format!("[Ran shell command]\n$ {cmd_line}\n\n");
                         if !stdout.is_empty() {
                             ctx_msg.push_str("stdout:\n");
@@ -1121,7 +1129,8 @@ impl Repl {
                     }
                     Err(e) => {
                         println!("{} {}", style("Exec failed:").red(), e);
-                        let ctx_msg = format!("[Shell command failed]\n$ {cmd_line}\n\nerror: {e}\n");
+                        let ctx_msg =
+                            format!("[Shell command failed]\n$ {cmd_line}\n\nerror: {e}\n");
                         self.context.add_message(Message::user(&ctx_msg));
                     }
                 }
@@ -1897,7 +1906,11 @@ impl Repl {
             } else {
                 preview.to_string()
             };
-            println!("  {} {}", style(format!("[{}]", i + 1)).dim(), style(display).cyan());
+            println!(
+                "  {} {}",
+                style(format!("[{}]", i + 1)).dim(),
+                style(display).cyan()
+            );
         }
         println!();
         print!(
