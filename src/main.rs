@@ -823,7 +823,23 @@ prompt: |
   changed sections. Do NOT omit any code or use "// ... rest unchanged"
   placeholders.
 
-  After the code block, provide a brief explanation of the safety improvements made.
+  Then output the function mapping as a second fenced code block written to
+  .slab/reports/function-map.md using this exact format:
+
+  ```md:.slab/reports/function-map.md
+  # Function Mapping: {{content}}
+
+  | Old Function | New Function(s) | Change |
+  |---|---|---|
+  | `old_fn()` | `new_fn_a()`, `new_fn_b()` | Split — reason |
+  | `old_fn()` | `renamed_fn()` | Renamed — reason |
+  | *(none)* | `new_fn()` | Added — reason |
+  | `old_fn()` | *(removed)* | Removed — reason |
+  ```
+
+  Only include functions that were structurally changed (split, merged, renamed, added, or removed).
+  Do NOT list functions that only had type annotations or safety checks added — those are implicit.
+  Keep reasons to one short phrase.
 
   {{files}}
 "#;
@@ -852,6 +868,37 @@ prompt: |
 "#;
     std::fs::write(".slab/templates/analyze.yaml", analyze_template)?;
 
+    let explain_template = r#"name: explain
+command: /explain
+description: Explain how code works
+variables:
+  - name: detail
+    default: moderate
+    description: "Level of detail (brief, moderate, detailed)"
+prompt: |
+  Please explain the following code with {{detail}} detail.
+
+  {{#if content}}
+  {{content}}
+  {{/if}}
+
+  {{#if files}}
+  ## Code to Explain
+
+  {{files}}
+  {{/if}}
+
+  Explain:
+  1. What the code does at a high level
+  2. How the main components work
+  3. Any important patterns or techniques used
+  4. Potential edge cases or gotchas
+"#;
+    let explain_path = std::path::PathBuf::from(".slab/templates/explain.yaml");
+    if !explain_path.exists() {
+        std::fs::write(&explain_path, explain_template)?;
+    }
+
     // Create example test
     let example_test = r#"name: basic_response
 prompt: "Say hello"
@@ -877,6 +924,7 @@ tags:
     println!("    .slab/templates/c-to-rust.yaml");
     println!("    .slab/templates/c-improve.yaml");
     println!("    .slab/templates/analyze.yaml");
+    println!("    .slab/templates/explain.yaml");
     println!("    .slab/tests/basic.yaml");
     println!("    .slab/sessions/");
     println!();

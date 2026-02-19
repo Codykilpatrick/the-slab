@@ -1,5 +1,7 @@
 use console::{style, Term};
-use crossterm::event::{self, Event, KeyCode, KeyModifiers};
+use crossterm::event::{
+    self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyModifiers,
+};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::HashMap;
 use std::io::{self, Write};
@@ -244,10 +246,24 @@ impl Repl {
         );
     }
 
+    fn format_context_bar(&self, used: usize, budget: usize) -> String {
+        const BAR_WIDTH: usize = 8;
+        let filled = if budget > 0 {
+            (used * BAR_WIDTH / budget).min(BAR_WIDTH)
+        } else {
+            0
+        };
+        let empty = BAR_WIDTH - filled;
+        let pct = if budget > 0 { used * 100 / budget } else { 0 };
+        let bar: String = "█".repeat(filled) + &"░".repeat(empty);
+        format!("{} {}% ({}/{}t)", bar, pct, used, budget)
+    }
+
     fn print_prompt(&self) {
         let summary = self.context.summary();
-        let token_info = format!("{}t", summary.tokens_used);
+        let bar = self.format_context_bar(summary.tokens_used, summary.token_budget);
 
+        // [model]
         print!(
             "{}{}{} ",
             self.theme.muted.apply_to("["),
@@ -255,17 +271,24 @@ impl Repl {
             self.theme.muted.apply_to("]")
         );
 
-        // Show file count and tokens if there are files
+        // [████░░░░ 42% (1024/8192t)] — always shown, with optional file count prefix
         if summary.files_count > 0 {
             print!(
-                "{}{} {}{}{}",
+                "{}{}{}{}{}",
                 self.theme.muted.apply_to("["),
                 self.theme
                     .secondary
-                    .apply_to(format!("{}f", summary.files_count)),
-                self.theme.muted.apply_to("|"),
-                self.theme.muted.apply_to(&token_info),
-                self.theme.muted.apply_to("] ")
+                    .apply_to(format!("{}f | ", summary.files_count)),
+                self.theme.muted.apply_to(&bar),
+                self.theme.muted.apply_to("]"),
+                self.theme.muted.apply_to(" "),
+            );
+        } else {
+            print!(
+                "{}{}{} ",
+                self.theme.muted.apply_to("["),
+                self.theme.muted.apply_to(&bar),
+                self.theme.muted.apply_to("]"),
             );
         }
 
@@ -285,208 +308,233 @@ impl Repl {
 
         // Enable raw mode for better input handling
         crossterm::terminal::enable_raw_mode().ok();
+        crossterm::execute!(stdout, EnableBracketedPaste).ok();
 
         loop {
             if event::poll(Duration::from_millis(100)).unwrap_or(false) {
-                if let Ok(Event::Key(key_event)) = event::read() {
-                    // Clear any existing preview before processing
-                    if let Some(ref preview) = current_preview {
-                        self.clear_preview(preview.len());
-                    }
-                    current_preview = None;
+                match event::read() {
+                    Ok(Event::Paste(pasted_text)) => {
+                        // Clear any pending preview
+                        if let Some(ref preview) = current_preview {
+                            self.clear_preview(preview.len());
+                        }
+                        current_preview = None;
 
-                    match (key_event.code, key_event.modifiers) {
-                        // Ctrl+C - cancel current input
-                        (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-                            crossterm::terminal::disable_raw_mode().ok();
-                            println!();
-                            return Ok(Some(String::new()));
+                        // Normalize line endings (\r\n and \r → \n)
+                        let normalized = pasted_text.replace("\r\n", "\n").replace('\r', "\n");
+
+                        // Insert full pasted string at cursor position (single O(n) operation)
+                        input.insert_str(cursor_pos, &normalized);
+                        cursor_pos += normalized.len();
+
+                        // Redraw entire input line once
+                        self.redraw_full_input(&input, cursor_pos, &mut stdout);
+                    }
+                    Ok(Event::Key(key_event)) => {
+                        // Clear any existing preview before processing
+                        if let Some(ref preview) = current_preview {
+                            self.clear_preview(preview.len());
                         }
-                        // Ctrl+D - exit
-                        (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
-                            crossterm::terminal::disable_raw_mode().ok();
-                            return Ok(None);
-                        }
-                        // Ctrl+L - clear screen
-                        (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
-                            crossterm::terminal::disable_raw_mode().ok();
-                            Term::stdout().clear_screen().ok();
-                            self.print_welcome();
-                            return Ok(Some(String::new()));
-                        }
-                        // Enter - submit
-                        (KeyCode::Enter, _) => {
-                            crossterm::terminal::disable_raw_mode().ok();
-                            println!();
-                            // Add to history if non-empty
-                            if !input.trim().is_empty() {
-                                self.history.push(input.clone());
-                            }
-                            return Ok(Some(input));
-                        }
-                        // Right arrow - accept one character of preview or move cursor
-                        (KeyCode::Right, _) => {
-                            if let Some(preview) = self.get_inline_preview(&input) {
-                                if !preview.is_empty() {
-                                    // Accept first character of preview
-                                    let first_char = preview.chars().next().unwrap();
-                                    input.push(first_char);
-                                    cursor_pos = input.len();
-                                    print!("{}", first_char);
-                                    stdout.flush().ok();
-                                }
-                            } else if cursor_pos < input.len() {
-                                cursor_pos += 1;
-                                print!("\x1b[C");
-                                stdout.flush().ok();
-                            }
-                        }
-                        // Left arrow - move cursor left
-                        (KeyCode::Left, _) => {
-                            if cursor_pos > 0 {
-                                cursor_pos -= 1;
-                                print!("\x1b[D");
-                                stdout.flush().ok();
-                            }
-                        }
-                        // Home - move cursor to start
-                        (KeyCode::Home, _) => {
-                            if cursor_pos > 0 {
-                                print!("\x1b[{}D", cursor_pos);
-                                cursor_pos = 0;
-                                stdout.flush().ok();
-                            }
-                        }
-                        // End - move cursor to end
-                        (KeyCode::End, _) => {
-                            if cursor_pos < input.len() {
-                                print!("\x1b[{}C", input.len() - cursor_pos);
-                                cursor_pos = input.len();
-                                stdout.flush().ok();
-                            }
-                        }
-                        // Up arrow - history back
-                        (KeyCode::Up, _) => {
-                            if !self.history.is_empty() && history_index > 0 {
-                                // Save current input on first up
-                                if history_index == self.history.len() {
-                                    saved_input = input.clone();
-                                }
-                                history_index -= 1;
-                                // Clear current line
-                                self.clear_input(&input, cursor_pos);
-                                input = self.history[history_index].clone();
-                                cursor_pos = input.len();
-                                print!("{}", input);
-                                stdout.flush().ok();
-                            }
-                        }
-                        // Down arrow - history forward
-                        (KeyCode::Down, _) => {
-                            if history_index < self.history.len() {
-                                // Clear current line
-                                self.clear_input(&input, cursor_pos);
-                                history_index += 1;
-                                if history_index == self.history.len() {
-                                    input = saved_input.clone();
-                                } else {
-                                    input = self.history[history_index].clone();
-                                }
-                                cursor_pos = input.len();
-                                print!("{}", input);
-                                stdout.flush().ok();
-                            }
-                        }
-                        // Tab - command completion
-                        (KeyCode::Tab, _) => {
-                            let completions = self.get_completions(&input);
-                            if completions.len() == 1 {
-                                // Single match - auto-complete
-                                self.clear_input(&input, cursor_pos);
-                                input = completions[0].0.clone();
-                                cursor_pos = input.len();
-                                print!("{}", input);
-                                stdout.flush().ok();
-                            } else if !completions.is_empty() {
-                                // Multiple matches - show completion menu
-                                // Disable raw mode for proper menu display
+                        current_preview = None;
+
+                        match (key_event.code, key_event.modifiers) {
+                            // Ctrl+C - cancel current input
+                            (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                                crossterm::execute!(stdout, DisableBracketedPaste).ok();
                                 crossterm::terminal::disable_raw_mode().ok();
                                 println!();
-                                self.show_completion_menu(&completions);
-                                self.print_prompt();
-                                print!("{}", input);
-                                stdout.flush().ok();
-                                // Re-enable raw mode
-                                crossterm::terminal::enable_raw_mode().ok();
+                                return Ok(Some(String::new()));
                             }
-                        }
-                        // Backspace
-                        (KeyCode::Backspace, _) => {
-                            if cursor_pos > 0 {
-                                input.remove(cursor_pos - 1);
-                                cursor_pos -= 1;
-                                // Move cursor back, reprint rest of line, clear trailing char
-                                print!("\x08");
-                                let tail = &input[cursor_pos..];
-                                print!("{} ", tail);
-                                // Move cursor back to position
-                                let move_back = tail.len() + 1;
+                            // Ctrl+D - exit
+                            (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                                crossterm::execute!(stdout, DisableBracketedPaste).ok();
+                                crossterm::terminal::disable_raw_mode().ok();
+                                return Ok(None);
+                            }
+                            // Ctrl+L - clear screen
+                            (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
+                                crossterm::execute!(stdout, DisableBracketedPaste).ok();
+                                crossterm::terminal::disable_raw_mode().ok();
+                                Term::stdout().clear_screen().ok();
+                                self.print_welcome();
+                                return Ok(Some(String::new()));
+                            }
+                            // Enter - submit
+                            (KeyCode::Enter, _) => {
+                                crossterm::execute!(stdout, DisableBracketedPaste).ok();
+                                crossterm::terminal::disable_raw_mode().ok();
+                                println!();
+                                // Add to history if non-empty
+                                if !input.trim().is_empty() {
+                                    self.history.push(input.clone());
+                                }
+                                return Ok(Some(input));
+                            }
+                            // Right arrow - accept one character of preview or move cursor
+                            (KeyCode::Right, _) => {
+                                if let Some(preview) = self.get_inline_preview(&input) {
+                                    if !preview.is_empty() {
+                                        // Accept first character of preview
+                                        let first_char = preview.chars().next().unwrap();
+                                        input.push(first_char);
+                                        cursor_pos = input.len();
+                                        print!("{}", first_char);
+                                        stdout.flush().ok();
+                                    }
+                                } else if cursor_pos < input.len() {
+                                    cursor_pos += 1;
+                                    print!("\x1b[C");
+                                    stdout.flush().ok();
+                                }
+                            }
+                            // Left arrow - move cursor left
+                            (KeyCode::Left, _) => {
+                                if cursor_pos > 0 {
+                                    cursor_pos -= 1;
+                                    print!("\x1b[D");
+                                    stdout.flush().ok();
+                                }
+                            }
+                            // Home - move cursor to start
+                            (KeyCode::Home, _) => {
+                                if cursor_pos > 0 {
+                                    print!("\x1b[{}D", cursor_pos);
+                                    cursor_pos = 0;
+                                    stdout.flush().ok();
+                                }
+                            }
+                            // End - move cursor to end
+                            (KeyCode::End, _) => {
+                                if cursor_pos < input.len() {
+                                    print!("\x1b[{}C", input.len() - cursor_pos);
+                                    cursor_pos = input.len();
+                                    stdout.flush().ok();
+                                }
+                            }
+                            // Up arrow - history back
+                            (KeyCode::Up, _) => {
+                                if !self.history.is_empty() && history_index > 0 {
+                                    // Save current input on first up
+                                    if history_index == self.history.len() {
+                                        saved_input = input.clone();
+                                    }
+                                    history_index -= 1;
+                                    // Clear current line
+                                    self.clear_input(&input, cursor_pos);
+                                    input = self.history[history_index].clone();
+                                    cursor_pos = input.len();
+                                    print!("{}", input);
+                                    stdout.flush().ok();
+                                }
+                            }
+                            // Down arrow - history forward
+                            (KeyCode::Down, _) => {
+                                if history_index < self.history.len() {
+                                    // Clear current line
+                                    self.clear_input(&input, cursor_pos);
+                                    history_index += 1;
+                                    if history_index == self.history.len() {
+                                        input = saved_input.clone();
+                                    } else {
+                                        input = self.history[history_index].clone();
+                                    }
+                                    cursor_pos = input.len();
+                                    print!("{}", input);
+                                    stdout.flush().ok();
+                                }
+                            }
+                            // Tab - command completion
+                            (KeyCode::Tab, _) => {
+                                let completions = self.get_completions(&input);
+                                if completions.len() == 1 {
+                                    // Single match - auto-complete
+                                    self.clear_input(&input, cursor_pos);
+                                    input = completions[0].0.clone();
+                                    cursor_pos = input.len();
+                                    print!("{}", input);
+                                    stdout.flush().ok();
+                                } else if !completions.is_empty() {
+                                    // Multiple matches - show completion menu
+                                    // Disable raw mode for proper menu display
+                                    crossterm::terminal::disable_raw_mode().ok();
+                                    println!();
+                                    self.show_completion_menu(&completions);
+                                    self.print_prompt();
+                                    print!("{}", input);
+                                    stdout.flush().ok();
+                                    // Re-enable raw mode
+                                    crossterm::terminal::enable_raw_mode().ok();
+                                }
+                            }
+                            // Backspace
+                            (KeyCode::Backspace, _) => {
+                                if cursor_pos > 0 {
+                                    input.remove(cursor_pos - 1);
+                                    cursor_pos -= 1;
+                                    // Move cursor back, reprint rest of line, clear trailing char
+                                    print!("\x08");
+                                    let tail = &input[cursor_pos..];
+                                    print!("{} ", tail);
+                                    // Move cursor back to position
+                                    let move_back = tail.len() + 1;
+                                    for _ in 0..move_back {
+                                        print!("\x08");
+                                    }
+                                    stdout.flush().ok();
+                                }
+                            }
+                            // Delete key
+                            (KeyCode::Delete, _) => {
+                                if cursor_pos < input.len() {
+                                    input.remove(cursor_pos);
+                                    // Reprint rest of line, clear trailing char
+                                    let tail = &input[cursor_pos..];
+                                    print!("{} ", tail);
+                                    let move_back = tail.len() + 1;
+                                    for _ in 0..move_back {
+                                        print!("\x08");
+                                    }
+                                    stdout.flush().ok();
+                                }
+                            }
+                            // Regular character
+                            (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
+                                input.insert(cursor_pos, c);
+                                cursor_pos += 1;
+                                // Print from cursor position onward
+                                let tail = &input[cursor_pos - 1..];
+                                print!("{}", tail);
+                                // Move cursor back to correct position
+                                let move_back = tail.len() - 1;
                                 for _ in 0..move_back {
                                     print!("\x08");
                                 }
                                 stdout.flush().ok();
                             }
+                            _ => {}
                         }
-                        // Delete key
-                        (KeyCode::Delete, _) => {
-                            if cursor_pos < input.len() {
-                                input.remove(cursor_pos);
-                                // Reprint rest of line, clear trailing char
-                                let tail = &input[cursor_pos..];
-                                print!("{} ", tail);
-                                let move_back = tail.len() + 1;
-                                for _ in 0..move_back {
-                                    print!("\x08");
-                                }
-                                stdout.flush().ok();
-                            }
-                        }
-                        // Regular character
-                        (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
-                            input.insert(cursor_pos, c);
-                            cursor_pos += 1;
-                            // Print from cursor position onward
-                            let tail = &input[cursor_pos - 1..];
-                            print!("{}", tail);
-                            // Move cursor back to correct position
-                            let move_back = tail.len() - 1;
-                            for _ in 0..move_back {
-                                print!("\x08");
-                            }
-                            stdout.flush().ok();
-                        }
-                        _ => {}
-                    }
 
-                    // Show inline preview after input changes (only when cursor is at end)
-                    if cursor_pos == input.len()
-                        && (input.starts_with('/') || input.contains('@'))
-                        && self.config.ui.inline_completion_preview
-                    {
-                        if let Some(preview) = self.get_inline_preview(&input) {
-                            if !preview.is_empty() {
-                                // Show dimmed preview text
-                                print!("{}", style(&preview).dim());
-                                // Move cursor back to end of actual input
-                                for _ in 0..preview.len() {
-                                    print!("\x08");
+                        // Show inline preview after input changes (only when cursor is at end)
+                        if cursor_pos == input.len()
+                            && (input.starts_with('/') || input.contains('@'))
+                            && self.config.ui.inline_completion_preview
+                        {
+                            if let Some(preview) = self.get_inline_preview(&input) {
+                                if !preview.is_empty() {
+                                    // Show dimmed preview text
+                                    print!("{}", style(&preview).dim());
+                                    // Move cursor back to end of actual input
+                                    for _ in 0..preview.len() {
+                                        print!("\x08");
+                                    }
+                                    stdout.flush().ok();
+                                    current_preview = Some(preview);
                                 }
-                                stdout.flush().ok();
-                                current_preview = Some(preview);
                             }
                         }
-                    }
-                }
+                    } // end Ok(Event::Key(...))
+                    _ => {}
+                } // end match event::read()
             }
         }
     }
@@ -518,6 +566,32 @@ impl Repl {
             print!("\x08");
         }
         std::io::stdout().flush().ok();
+    }
+
+    /// Redraw entire input line after bulk insert (paste).
+    /// Replaces per-character rendering for O(n) single-pass redraw.
+    fn redraw_full_input(&self, input: &str, cursor_pos: usize, stdout: &mut impl io::Write) {
+        // Replace internal newlines with visible glyph for single-line display
+        let visual: String = input.replace('\n', "↵");
+
+        // Visual column count of text before cursor
+        let before_visual_len = input[..cursor_pos].replace('\n', "↵").chars().count();
+
+        // Move cursor back to start of input
+        if before_visual_len > 0 {
+            print!("\x1b[{}D", before_visual_len);
+        }
+
+        // Print full visual line
+        print!("{}", visual);
+
+        // Move cursor back to cursor_pos (paste inserts at end so this is often 0)
+        let tail_visual_len = visual.chars().count() - before_visual_len;
+        if tail_visual_len > 0 {
+            print!("\x1b[{}D", tail_visual_len);
+        }
+
+        stdout.flush().ok();
     }
 
     /// Get the inline preview text (the part to show dimmed after cursor)
@@ -1199,6 +1273,26 @@ impl Repl {
             }
         };
 
+        // Parse --output/-o flag before processing other args
+        let mut output_file: Option<String> = None;
+        let mut filtered_args: Vec<&str> = Vec::new();
+        let mut iter = args.iter().peekable();
+        while let Some(arg) = iter.next() {
+            if *arg == "--output" || *arg == "-o" {
+                if let Some(next) = iter.next() {
+                    output_file = Some(next.to_string());
+                }
+            } else if let Some(val) = arg
+                .strip_prefix("--output=")
+                .or_else(|| arg.strip_prefix("-o="))
+            {
+                output_file = Some(val.to_string());
+            } else {
+                filtered_args.push(arg);
+            }
+        }
+        let args = filtered_args.as_slice();
+
         // Parse arguments as key=value pairs or positional content
         let mut variables = HashMap::new();
         let mut content_parts = Vec::new();
@@ -1244,6 +1338,33 @@ impl Repl {
         let summary = format!("[Used /{} template]", cmd);
         if let Some(msg) = self.context.last_user_message_mut() {
             *msg = summary;
+        }
+
+        // Determine target file: from flag or interactive prompt
+        let target_file = if let Some(f) = output_file {
+            Some(f)
+        } else {
+            print!(
+                "\n{} Save response to file? (Enter filename or press Enter to skip): ",
+                style("→").cyan()
+            );
+            use std::io::Write as _;
+            std::io::stdout().flush()?;
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input)?;
+            let trimmed = input.trim().to_string();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        };
+
+        if let Some(path) = target_file {
+            if let Some(content) = self.context.last_assistant_message() {
+                std::fs::write(&path, content)?;
+                println!("{} Saved to {}", style("✓").green(), style(&path).yellow());
+            }
         }
 
         Ok(true)

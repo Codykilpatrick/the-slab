@@ -23,15 +23,31 @@ prompt: |
   IMPORTANT: Output the COMPLETE refactored file inside a fenced code block
   annotated with the target file path using this exact format:
 
-  ```c:{{content}}
+  ```c:/path/to/the/original/file.c
   // complete refactored code here
   ```
 
-  The path after the colon is critical — it tells the system which file to
-  create or overwrite. You MUST include every line of the file, not just
-  changed sections. Do NOT omit any code or use "// ... rest unchanged"
-  placeholders.
+  Use the exact path of the source file provided in context. The path after
+  the colon is critical — it tells the system which file to create or
+  overwrite. You MUST include every line of the file, not just changed
+  sections. Do NOT omit any code or use "// ... rest unchanged" placeholders.
 
-  After the code block, provide a brief explanation of the safety improvements made.
+  Then output the function mapping as a second fenced code block written to
+  .slab/reports/function-map.md using this exact format:
+
+  ```md:.slab/reports/function-map.md
+  # Function Mapping: [source file name]
+
+  | Old Function | New Function(s) | Change |
+  |---|---|---|
+  | `old_fn()` | `new_fn_a()`, `new_fn_b()` | Split — reason |
+  | `old_fn()` | `renamed_fn()` | Renamed — reason |
+  | *(none)* | `new_fn()` | Added — reason |
+  | `old_fn()` | *(removed)* | Removed — reason |
+  ```
+
+  Only include functions that were structurally changed (split, merged, renamed, added, or removed).
+  Do NOT list functions that only had type annotations or safety checks added — those are implicit.
+  Keep reasons to one short phrase.
 
   {{files}}

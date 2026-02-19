@@ -262,34 +262,6 @@ Please identify:
                 .to_string(),
         },
         PromptTemplate {
-            name: "explain".to_string(),
-            command: "/explain".to_string(),
-            description: "Explain how code works".to_string(),
-            variables: vec![TemplateVariable {
-                name: "detail".to_string(),
-                default: Some("moderate".to_string()),
-                description: Some("Level of detail (brief, moderate, detailed)".to_string()),
-            }],
-            prompt: r#"Please explain the following code with {{detail}} detail.
-
-{{#if content}}
-{{content}}
-{{/if}}
-
-{{#if files}}
-## Code to Explain
-
-{{files}}
-{{/if}}
-
-Explain:
-1. What the code does at a high level
-2. How the main components work
-3. Any important patterns or techniques used
-4. Potential edge cases or gotchas"#
-                .to_string(),
-        },
-        PromptTemplate {
             name: "refactor".to_string(),
             command: "/refactor".to_string(),
             description: "Suggest refactoring improvements".to_string(),
@@ -436,7 +408,6 @@ mod tests {
         manager.load_defaults();
 
         assert!(manager.get("review").is_some());
-        assert!(manager.get("explain").is_some());
         assert!(manager.get("refactor").is_some());
         assert!(manager.get("test").is_some());
     }

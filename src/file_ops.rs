@@ -43,29 +43,27 @@ impl FileOperation {
     pub fn safety_check(&self, project_root: &Path) -> Result<()> {
         let path = self.path();
 
-        // Ensure path is within project root
-        let canonical_root = project_root
-            .canonicalize()
-            .unwrap_or_else(|_| project_root.to_path_buf());
-        let full_path = if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            project_root.join(path)
-        };
+        // Absolute paths are explicit — the model (and user) know exactly which file is
+        // being written. Only relative paths need project-root containment to prevent
+        // directory traversal (e.g. ../../etc/passwd).
+        if !path.is_absolute() {
+            let canonical_root = project_root
+                .canonicalize()
+                .unwrap_or_else(|_| project_root.to_path_buf());
+            let full_path = project_root.join(path);
+            let canonical_path = full_path
+                .canonicalize()
+                .unwrap_or_else(|_| full_path.clone());
 
-        // Try to canonicalize, or use the joined path for new files
-        let canonical_path = full_path
-            .canonicalize()
-            .unwrap_or_else(|_| full_path.clone());
-
-        if !canonical_path.starts_with(&canonical_root) {
-            return Err(SlabError::FileOperation(format!(
-                "Path '{}' is outside project root",
-                path.display()
-            )));
+            if !canonical_path.starts_with(&canonical_root) {
+                return Err(SlabError::FileOperation(format!(
+                    "Path '{}' is outside project root",
+                    path.display()
+                )));
+            }
         }
 
-        // Protect .git directory
+        // Protect .git directory regardless of absolute/relative
         if path.components().any(|c| c.as_os_str() == ".git") {
             return Err(SlabError::FileOperation(
                 "Cannot modify files in .git directory".to_string(),
@@ -74,18 +72,19 @@ impl FileOperation {
 
         // For rename, also check destination
         if let FileOperation::Rename { to, .. } = self {
-            let to_full = if to.is_absolute() {
-                to.to_path_buf()
-            } else {
-                project_root.join(to)
-            };
-            let to_canonical = to_full.canonicalize().unwrap_or(to_full);
+            if !to.is_absolute() {
+                let canonical_root = project_root
+                    .canonicalize()
+                    .unwrap_or_else(|_| project_root.to_path_buf());
+                let to_full = project_root.join(to);
+                let to_canonical = to_full.canonicalize().unwrap_or(to_full);
 
-            if !to_canonical.starts_with(&canonical_root) {
-                return Err(SlabError::FileOperation(format!(
-                    "Destination path '{}' is outside project root",
-                    to.display()
-                )));
+                if !to_canonical.starts_with(&canonical_root) {
+                    return Err(SlabError::FileOperation(format!(
+                        "Destination path '{}' is outside project root",
+                        to.display()
+                    )));
+                }
             }
         }
 

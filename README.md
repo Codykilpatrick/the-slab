@@ -391,7 +391,7 @@ slab config --set ui.auto_apply_file_ops=true
 auto_apply_file_ops = true
 ```
 
-When enabled, all safe file operations are applied immediately. Safety checks still prevent operations outside the project root or in `.git/`.
+When enabled, all safe file operations are applied immediately. Safety checks prevent relative-path traversal and writes into `.git/`. Absolute paths (e.g. from cross-project templates) are allowed through with user confirmation.
 
 ### Customizing the System Prompt
 
@@ -460,6 +460,17 @@ Use in REPL:
 ```text
 /review focus=security
 ```
+
+### Saving Template Output
+
+Template responses can be saved to a file with `--output` / `-o`:
+
+```text
+/c-improve --output refactored.c
+/review -o review-notes.md
+```
+
+If no flag is given, you'll be prompted interactively after the response whether to save it.
 
 ### Built-in Variables
 

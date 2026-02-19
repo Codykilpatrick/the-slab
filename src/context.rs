@@ -31,12 +31,17 @@ pub struct ContextManager {
     /// Maximum tokens allowed in context
     token_budget: usize,
 
-    /// Project root for resolving relative paths
+    /// Project root for resolving .slab/ resources
+    #[allow(dead_code)]
     project_root: PathBuf,
+
+    /// Directory from which the user started the chat session (for resolving user-supplied file paths)
+    initial_cwd: PathBuf,
 }
 
 impl ContextManager {
     pub fn new(token_budget: usize, project_root: PathBuf) -> Self {
+        let initial_cwd = std::env::current_dir().unwrap_or_else(|_| project_root.clone());
         Self {
             system_prompt: None,
             rules: None,
@@ -44,6 +49,7 @@ impl ContextManager {
             messages: Vec::new(),
             token_budget,
             project_root,
+            initial_cwd,
         }
     }
 
@@ -68,7 +74,7 @@ impl ContextManager {
         let full_path = if path.is_absolute() {
             path.to_path_buf()
         } else {
-            self.project_root.join(path)
+            self.initial_cwd.join(path)
         };
 
         if !full_path.exists() {
@@ -99,7 +105,7 @@ impl ContextManager {
         let full_path = if path.is_absolute() {
             path.to_path_buf()
         } else {
-            self.project_root.join(path)
+            self.initial_cwd.join(path)
         };
 
         if !full_path.exists() {
@@ -163,7 +169,7 @@ impl ContextManager {
         let full_path = if path.is_absolute() {
             path.to_path_buf()
         } else {
-            self.project_root.join(path)
+            self.initial_cwd.join(path)
         };
         full_path.is_dir()
     }
@@ -207,6 +213,15 @@ impl ContextManager {
             .rev()
             .find(|m| m.role == "user")
             .map(|m| &mut m.content)
+    }
+
+    /// Get the content of the last assistant message
+    pub fn last_assistant_message(&self) -> Option<&str> {
+        self.messages
+            .iter()
+            .rev()
+            .find(|m| m.role == "assistant")
+            .map(|m| m.content.as_str())
     }
 
     /// Clear conversation messages (but keep files)
