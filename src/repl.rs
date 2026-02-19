@@ -1558,7 +1558,8 @@ impl Repl {
                     match chunk {
                         Some(Ok(text)) => {
                             full_response.push_str(&text);
-                            print!("{}", text);
+                            // In raw mode, \n doesn't reset to column 0; use \r\n instead
+                            print!("{}", text.replace('\n', "\r\n"));
                             io::stdout().flush().ok();
                         }
                         Some(Err(e)) => {
