@@ -391,6 +391,47 @@ pub fn parse_file_operations(text: &str, project_root: &Path) -> Vec<FileOperati
     operations
 }
 
+/// Parse response for exec/run blocks. Returns command strings to run (multi-line joined).
+/// Blocks look like:
+/// ``` exec
+/// cargo build
+/// ```
+/// or ``` run
+/// podman exec mycontainer echo hello
+/// ```
+pub fn parse_exec_operations(text: &str) -> Vec<String> {
+    let mut commands = Vec::new();
+    let mut in_block = false;
+    let mut content = String::new();
+
+    for line in text.lines() {
+        if let Some(header) = line.strip_prefix("```") {
+            let header = header.trim().to_lowercase();
+            if in_block {
+                if header.is_empty() {
+                    let cmd = content.trim().to_string();
+                    if !cmd.is_empty() {
+                        commands.push(cmd);
+                    }
+                    content.clear();
+                    in_block = false;
+                }
+                // else: nested ```, treat as content
+            } else if header == "exec" || header == "run" || header.starts_with("exec:") || header.starts_with("run:") {
+                in_block = true;
+                content.clear();
+            }
+        } else if in_block {
+            if !content.is_empty() {
+                content.push('\n');
+            }
+            content.push_str(line);
+        }
+    }
+
+    commands
+}
+
 /// Parse a delete marker line
 /// Supports formats:
 /// - DELETE:path/to/file
@@ -768,6 +809,31 @@ print("test")
 
         let path = parse_delete_marker("delete this file");
         assert_eq!(path, None);
+    }
+
+    #[test]
+    fn test_parse_exec_operations() {
+        let text = r#"
+I'll run the build for you:
+
+``` exec
+cargo build
+```
+
+Done.
+"#;
+        let commands = parse_exec_operations(text);
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].trim(), "cargo build");
+
+        let text2 = r#"
+``` run
+podman exec myct echo hello world
+```
+"#;
+        let commands2 = parse_exec_operations(text2);
+        assert_eq!(commands2.len(), 1);
+        assert!(commands2[0].contains("podman exec"));
     }
 
     #[test]

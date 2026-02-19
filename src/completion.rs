@@ -383,6 +383,7 @@ impl CommandCompleter {
                 ("fileops".into(), "Toggle file operations".into()),
                 ("templates".into(), "List available templates".into()),
                 ("rules".into(), "Show loaded rules".into()),
+                ("exec".into(), "Run a shell command".into()),
             ],
         }
     }

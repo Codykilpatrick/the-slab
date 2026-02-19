@@ -189,7 +189,17 @@ Examples:
 - DELETE:temp/cache.json
 - DELETE:unused.txt
 
-The user will be prompted to confirm all file operations before they are applied."#.to_string()
+The user will be prompted to confirm all file operations before they are applied.
+
+## Running Commands
+
+When the user wants you to run a shell command (e.g. cargo build, cargo test, podman exec, running a script), output a fenced code block with the keyword exec or run:
+
+``` exec
+cargo build
+```
+
+Use this for build, test, run, or any single command. The command can be multiple lines (e.g. a short script). The user will be prompted to run it; the output will be added to the conversation so you can see results and fix errors in a follow-up. Prefer this over writing a script file when the user asks to "run" or "execute" something."#.to_string()
 }
 
 impl Default for Config {

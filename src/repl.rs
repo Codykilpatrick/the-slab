@@ -4,13 +4,16 @@ use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::process::Command;
 use std::time::Duration;
 
 use crate::completion::{CompletionContext, CompletionEngine, CompletionKind};
 use crate::config::{find_project_root, Config};
 use crate::context::ContextManager;
 use crate::error::Result;
-use crate::file_ops::{execute_operations, parse_file_operations, FileOperationUI};
+use crate::file_ops::{
+    execute_operations, parse_exec_operations, parse_file_operations, FileOperationUI,
+};
 use crate::highlight::Highlighter;
 use crate::ollama::{ChatRequest, Message, ModelOptions, OllamaClient};
 use crate::rules::RuleEngine;
@@ -1066,6 +1069,64 @@ impl Repl {
                 }
                 Ok(true)
             }
+            "exec" => {
+                let cmd_line = command.trim().strip_prefix("/exec").unwrap_or("").trim_start();
+                if cmd_line.is_empty() {
+                    println!("{} /exec <shell command>", style("Usage:").dim());
+                    println!(
+                        "{}",
+                        style("Example: /exec podman exec container echo hello world").dim()
+                    );
+                    return Ok(true);
+                }
+                #[cfg(unix)]
+                let output = Command::new("sh").arg("-c").arg(cmd_line).output();
+                #[cfg(windows)]
+                let output = Command::new("cmd").args(["/C", cmd_line]).output();
+                match output {
+                    Ok(o) => {
+                        if !o.stdout.is_empty() {
+                            print!("{}", String::from_utf8_lossy(&o.stdout));
+                        }
+                        if !o.stderr.is_empty() {
+                            eprint!("{}", String::from_utf8_lossy(&o.stderr));
+                        }
+                        io::stdout().flush().ok();
+                        if !o.status.success() {
+                            if let Some(code) = o.status.code() {
+                                println!("{} {}", style("Exit code:").dim(), code);
+                            }
+                        }
+                        // Add command and output to context so the model has it
+                        let stdout = String::from_utf8_lossy(&o.stdout);
+                        let stderr = String::from_utf8_lossy(&o.stderr);
+                        let code = o.status.code().map(|c| c.to_string()).unwrap_or_else(|| "—".into());
+                        let mut ctx_msg = format!("[Ran shell command]\n$ {cmd_line}\n\n");
+                        if !stdout.is_empty() {
+                            ctx_msg.push_str("stdout:\n");
+                            ctx_msg.push_str(&stdout);
+                            if !stdout.ends_with('\n') {
+                                ctx_msg.push('\n');
+                            }
+                        }
+                        if !stderr.is_empty() {
+                            ctx_msg.push_str("stderr:\n");
+                            ctx_msg.push_str(&stderr);
+                            if !stderr.ends_with('\n') {
+                                ctx_msg.push('\n');
+                            }
+                        }
+                        ctx_msg.push_str(&format!("exit code: {code}\n"));
+                        self.context.add_message(Message::user(&ctx_msg));
+                    }
+                    Err(e) => {
+                        println!("{} {}", style("Exec failed:").red(), e);
+                        let ctx_msg = format!("[Shell command failed]\n$ {cmd_line}\n\nerror: {e}\n");
+                        self.context.add_message(Message::user(&ctx_msg));
+                    }
+                }
+                Ok(true)
+            }
             "rule" => {
                 if parts.len() < 3 {
                     println!("{} /rule enable|disable <name>", style("Usage:").dim());
@@ -1198,6 +1259,7 @@ impl Repl {
             ("/templates", "List available templates"),
             ("/rules", "Show loaded rules"),
             ("/rule enable|disable", "Enable/disable a rule"),
+            ("/exec <command>", "Run a shell command"),
         ];
 
         let mut content = String::new();
@@ -1349,6 +1411,18 @@ impl Repl {
                 "Displays all rules loaded from .slab/rules/. Rules provide persistent \
                  guidelines that are injected into every conversation context.",
             ),
+            "rule" => (
+                "/rule enable|disable <name>",
+                "Enable or disable a rule",
+                "Enables or disables a loaded rule by name. Rule names are shown by /rules.",
+            ),
+            "exec" => (
+                "/exec <command>",
+                "Run a shell command",
+                "Runs the given command in the system shell (sh -c on Unix, cmd /C on Windows). \
+                 Use for one-off commands like podman/docker exec, running scripts, etc.\n\n\
+                 Example:\n  /exec podman exec container echo hello world",
+            ),
             _ => {
                 // Check if it's a template command
                 if let Some(template) = self.templates.get(cmd) {
@@ -1429,6 +1503,11 @@ impl Repl {
         // Process file operations if enabled
         if self.file_ops_enabled && !response.is_empty() {
             self.process_file_operations(&response)?;
+        }
+
+        // Process exec blocks (run commands, add output to context)
+        if !response.is_empty() {
+            self.process_exec_operations(&response)?;
         }
 
         Ok(())
@@ -1794,6 +1873,122 @@ impl Repl {
             println!("{}", style("No operations applied.").dim());
         }
 
+        println!();
+        Ok(())
+    }
+
+    fn process_exec_operations(&mut self, response: &str) -> Result<()> {
+        let commands = parse_exec_operations(response);
+        if commands.is_empty() {
+            return Ok(());
+        }
+
+        println!();
+        println!(
+            "{} {} command(s) to run:",
+            style("→").cyan(),
+            commands.len()
+        );
+        println!();
+        for (i, cmd) in commands.iter().enumerate() {
+            let preview = cmd.lines().next().unwrap_or(cmd).trim();
+            let display = if preview.len() > 60 {
+                format!("{}...", &preview[..57])
+            } else {
+                preview.to_string()
+            };
+            println!("  {} {}", style(format!("[{}]", i + 1)).dim(), style(display).cyan());
+        }
+        println!();
+        print!(
+            "{} ",
+            style("[r]un all, [s]kip all, or enter numbers to run (e.g. 1 3):").dim()
+        );
+        io::stdout().flush().ok();
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        let input = input.trim().to_lowercase();
+
+        let to_run: Vec<usize> = match input.as_str() {
+            "r" | "run" | "a" | "all" | "y" | "yes" => (0..commands.len()).collect(),
+            "s" | "skip" | "n" | "no" => {
+                println!("{}", style("No commands run.").dim());
+                println!();
+                return Ok(());
+            }
+            _ => {
+                let mut indices = Vec::new();
+                for part in input.split(|c: char| c == ',' || c.is_whitespace()) {
+                    if let Ok(num) = part.trim().parse::<usize>() {
+                        if num > 0 && num <= commands.len() {
+                            indices.push(num - 1);
+                        }
+                    }
+                }
+                indices
+            }
+        };
+
+        if to_run.is_empty() {
+            println!("{}", style("No commands run.").dim());
+            println!();
+            return Ok(());
+        }
+
+        for &idx in &to_run {
+            let cmd_line = &commands[idx];
+            #[cfg(unix)]
+            let output = Command::new("sh").arg("-c").arg(cmd_line).output();
+            #[cfg(windows)]
+            let output = Command::new("cmd").args(["/C", cmd_line]).output();
+
+            match output {
+                Ok(o) => {
+                    if !o.stdout.is_empty() {
+                        print!("{}", String::from_utf8_lossy(&o.stdout));
+                    }
+                    if !o.stderr.is_empty() {
+                        eprint!("{}", String::from_utf8_lossy(&o.stderr));
+                    }
+                    io::stdout().flush().ok();
+                    if !o.status.success() {
+                        if let Some(code) = o.status.code() {
+                            println!("{} {}", style("Exit code:").dim(), code);
+                        }
+                    }
+                    let stdout = String::from_utf8_lossy(&o.stdout);
+                    let stderr = String::from_utf8_lossy(&o.stderr);
+                    let code = o
+                        .status
+                        .code()
+                        .map(|c| c.to_string())
+                        .unwrap_or_else(|| "—".into());
+                    let mut ctx_msg = format!("[Ran shell command]\n$ {cmd_line}\n\n");
+                    if !stdout.is_empty() {
+                        ctx_msg.push_str("stdout:\n");
+                        ctx_msg.push_str(&stdout);
+                        if !stdout.ends_with('\n') {
+                            ctx_msg.push('\n');
+                        }
+                    }
+                    if !stderr.is_empty() {
+                        ctx_msg.push_str("stderr:\n");
+                        ctx_msg.push_str(&stderr);
+                        if !stderr.ends_with('\n') {
+                            ctx_msg.push('\n');
+                        }
+                    }
+                    ctx_msg.push_str(&format!("exit code: {code}\n"));
+                    self.context.add_message(Message::user(&ctx_msg));
+                }
+                Err(e) => {
+                    println!("{} {}", style("Exec failed:").red(), e);
+                    let ctx_msg = format!("[Shell command failed]\n$ {cmd_line}\n\nerror: {e}\n");
+                    self.context.add_message(Message::user(&ctx_msg));
+                }
+            }
+        }
         println!();
         Ok(())
     }
