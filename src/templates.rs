@@ -24,6 +24,18 @@ pub struct PromptTemplate {
 
     /// The prompt template using Handlebars syntax
     pub prompt: String,
+
+    /// Optional phase loop: commands to run after LLM responds
+    #[serde(default)]
+    pub phases: Vec<TemplatePhase>,
+
+    /// Template-level fallback follow-up prompt for the phase loop
+    #[serde(default)]
+    pub phases_follow_up: Option<String>,
+
+    /// Maximum number of phase loop iterations (default 10)
+    #[serde(default)]
+    pub max_phases: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,6 +45,49 @@ pub struct TemplateVariable {
     pub default: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum PhaseOutcome {
+    #[default]
+    Stop,
+    Continue,
+}
+
+fn default_on_success() -> PhaseOutcome {
+    PhaseOutcome::Stop
+}
+
+fn default_on_failure() -> PhaseOutcome {
+    PhaseOutcome::Continue
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum PhaseFeedback {
+    #[default]
+    OnFailure,
+    Always,
+    Never,
+}
+
+fn default_feedback() -> PhaseFeedback {
+    PhaseFeedback::OnFailure
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TemplatePhase {
+    pub name: Option<String>,
+    pub run: String,
+    #[serde(default = "default_on_success")]
+    pub on_success: PhaseOutcome,
+    #[serde(default = "default_on_failure")]
+    pub on_failure: PhaseOutcome,
+    #[serde(default = "default_feedback")]
+    pub feedback: PhaseFeedback,
+    #[serde(default)]
+    pub follow_up: Option<String>,
 }
 
 /// Manages prompt templates
@@ -260,6 +315,9 @@ Please identify:
 4. Code style and readability improvements
 5. Any other suggestions"#
                 .to_string(),
+            phases: vec![],
+            phases_follow_up: None,
+            max_phases: None,
         },
         PromptTemplate {
             name: "refactor".to_string(),
@@ -287,6 +345,9 @@ For each suggestion:
 2. Show the refactored code
 3. Note any trade-offs or considerations"#
                 .to_string(),
+            phases: vec![],
+            phases_follow_up: None,
+            max_phases: None,
         },
         PromptTemplate {
             name: "test_gen".to_string(),
@@ -318,6 +379,9 @@ Include tests for:
 
 Use descriptive test names that explain what is being tested."#
                     .to_string(),
+            phases: vec![],
+            phases_follow_up: None,
+            max_phases: None,
         },
         PromptTemplate {
             name: "fix".to_string(),
@@ -342,6 +406,9 @@ Please:
 3. Provide the corrected code
 4. Suggest how to prevent similar issues"#
                 .to_string(),
+            phases: vec![],
+            phases_follow_up: None,
+            max_phases: None,
         },
         PromptTemplate {
             name: "document".to_string(),
@@ -370,6 +437,9 @@ Include:
 3. Return value documentation
 4. Usage examples where appropriate"#
                 .to_string(),
+            phases: vec![],
+            phases_follow_up: None,
+            max_phases: None,
         },
     ]
 }

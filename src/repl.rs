@@ -17,15 +17,15 @@ use crate::file_ops::{
     execute_operations, parse_exec_operations, parse_file_operations, FileOperationUI,
 };
 use crate::highlight::Highlighter;
-use crate::ollama::{ChatRequest, Message, ModelOptions, OllamaClient};
+use crate::ollama::{ChatRequest, LlmBackend, Message, ModelOptions, OllamaClient};
 use crate::rules::RuleEngine;
 use crate::session::Session;
 use crate::templates::TemplateManager;
 use crate::theme::{BoxStyle, Theme, ThemeName};
 use crate::ui::{terminal_width, BoxRenderer};
 
-pub struct Repl {
-    client: OllamaClient,
+pub struct Repl<B: LlmBackend = OllamaClient> {
+    client: B,
     config: Config,
     model: String,
     context: ContextManager,
@@ -44,8 +44,8 @@ pub struct Repl {
     box_style: BoxStyle,
 }
 
-impl Repl {
-    pub fn new(client: OllamaClient, config: Config, model: String, streaming: bool) -> Self {
+impl<B: LlmBackend> Repl<B> {
+    pub fn new(client: B, config: Config, model: String, streaming: bool) -> Self {
         // Find project root by walking up to find .slab/, fall back to cwd
         let project_root = find_project_root()
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
@@ -121,7 +121,7 @@ impl Repl {
         term.clear_screen().ok();
 
         // Cache available models for completion
-        if let Ok(models) = self.client.list_models().await {
+        if let Ok(models) = self.client.llm_list_models().await {
             self.cached_models = Some(models.into_iter().map(|m| m.name).collect());
         }
 
@@ -1312,6 +1312,176 @@ impl Repl {
         }
     }
 
+    async fn run_phase_loop(
+        &mut self,
+        phases: &[crate::templates::TemplatePhase],
+        max_iterations: usize,
+        template_follow_up: Option<&str>,
+        mut confirm: impl FnMut(usize) -> bool,
+    ) -> Result<()> {
+        use crate::templates::{PhaseFeedback, PhaseOutcome};
+
+        let mut pass = 1usize;
+        loop {
+            if pass > max_iterations {
+                println!(
+                    "{}",
+                    style(format!(
+                        "⚠ Phase loop reached maximum of {} iteration(s). Stopping.",
+                        max_iterations
+                    ))
+                    .yellow()
+                );
+                return Ok(());
+            }
+
+            println!(
+                "\n{} {}",
+                style("→").cyan(),
+                style(format!("Phase loop: pass {}", pass)).bold()
+            );
+
+            let mut any_continue = false;
+            let mut feedback_parts: Vec<String> = Vec::new();
+            let mut follow_up_parts: Vec<String> = Vec::new();
+
+            for phase in phases {
+                let label = phase.name.as_deref().unwrap_or("phase");
+
+                // Bug 3: skip phases with {{file}}/{{files}} when context is empty
+                let cmd_str = match interpolate_phase_cmd(&phase.run, &self.context) {
+                    Some(s) => s,
+                    None => {
+                        println!(
+                            "  {} [{}] skipped: no files in context",
+                            style("⚠").yellow(),
+                            label
+                        );
+                        continue;
+                    }
+                };
+
+                println!(
+                    "  {} {}",
+                    style(format!("[{}]", label)).dim(),
+                    style(&cmd_str).cyan()
+                );
+
+                let output = Command::new("sh").arg("-c").arg(&cmd_str).output();
+
+                match output {
+                    Err(e) => {
+                        println!("  {} {}", style("Error running phase:").red(), e);
+                        // Bug 2: only continue when on_failure == Continue
+                        if phase.on_failure == PhaseOutcome::Continue {
+                            any_continue = true;
+                        }
+                        let entry = format!("[{}]: error: {}\n", label, e);
+                        match phase.feedback {
+                            PhaseFeedback::Never => {}
+                            _ => feedback_parts.push(entry),
+                        }
+                        if phase.on_failure == PhaseOutcome::Continue {
+                            if let Some(ref fu) = phase.follow_up {
+                                follow_up_parts.push(fu.clone());
+                            }
+                        }
+                    }
+                    Ok(out) => {
+                        let stdout = String::from_utf8_lossy(&out.stdout);
+                        let stderr = String::from_utf8_lossy(&out.stderr);
+                        if !stdout.is_empty() {
+                            print!("{}", stdout);
+                        }
+                        if !stderr.is_empty() {
+                            eprint!("{}", stderr);
+                        }
+
+                        let combined = format!("{}{}", stdout, stderr);
+                        let entry = format!(
+                            "[{}] (exit {}):\n{}\n",
+                            label,
+                            out.status.code().unwrap_or(-1),
+                            combined
+                        );
+
+                        let outcome = if out.status.success() {
+                            &phase.on_success
+                        } else {
+                            &phase.on_failure
+                        };
+
+                        let triggers_continue = *outcome == PhaseOutcome::Continue;
+                        if triggers_continue {
+                            any_continue = true;
+                        }
+
+                        // Determine whether to inject into LLM context
+                        let should_inject = match phase.feedback {
+                            PhaseFeedback::Always => true,
+                            PhaseFeedback::OnFailure => !out.status.success(),
+                            PhaseFeedback::Never => false,
+                        };
+                        if should_inject {
+                            feedback_parts.push(entry);
+                        }
+
+                        if triggers_continue {
+                            if let Some(ref fu) = phase.follow_up {
+                                follow_up_parts.push(fu.clone());
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !any_continue {
+                println!(
+                    "\n{} {}",
+                    style("✓").green(),
+                    style("All checks passed.").bold()
+                );
+                return Ok(());
+            }
+
+            // Ask user whether to continue
+            print!(
+                "\n{} Issues found on pass {}. Run another improvement pass? [y/N]: ",
+                style("→").cyan(),
+                pass
+            );
+            io::stdout().flush().ok();
+
+            if !confirm(pass) {
+                println!(
+                    "{}",
+                    style(format!("Stopped after {} pass(es).", pass)).dim()
+                );
+                return Ok(());
+            }
+
+            // Resolve follow-up message (precedence: per-phase → template-level → default)
+            let follow_up_text = if !follow_up_parts.is_empty() {
+                follow_up_parts.join("\n\n")
+            } else if let Some(tfu) = template_follow_up {
+                tfu.to_string()
+            } else {
+                "The checks above found issues. Please fix them and output the complete corrected file.".to_string()
+            };
+
+            let feedback_body = feedback_parts.join("\n");
+
+            // Bug 1: single send_message combines phase results + follow-up
+            let combined = format!(
+                "[Phase results - pass {}]\n{}\n\n{}",
+                pass, feedback_body, follow_up_text
+            );
+            self.send_message(&combined).await?;
+
+            pass += 1;
+        }
+    }
+
     async fn handle_template_command(&mut self, cmd: &str, args: &[&str]) -> Result<bool> {
         let template = match self.templates.get(cmd) {
             Some(t) => t.clone(),
@@ -1386,6 +1556,23 @@ impl Repl {
         let summary = format!("[Used /{} template]", cmd);
         if let Some(msg) = self.context.last_user_message_mut() {
             *msg = summary;
+        }
+
+        // Run phase loop if template defines phases
+        if !template.phases.is_empty() {
+            let max_iterations = template.max_phases.unwrap_or(10);
+            self.run_phase_loop(
+                &template.phases,
+                max_iterations,
+                template.phases_follow_up.as_deref(),
+                |_pass| {
+                    let mut line = String::new();
+                    io::stdin().read_line(&mut line).ok();
+                    let answer = line.trim().to_lowercase();
+                    answer == "y" || answer == "yes"
+                },
+            )
+            .await?;
         }
 
         // Determine target file: from flag or interactive prompt
@@ -1713,7 +1900,7 @@ impl Repl {
     }
 
     async fn stream_response(&mut self, request: ChatRequest) -> Result<String> {
-        let mut rx = self.client.chat_stream(request).await?;
+        let mut rx = self.client.llm_stream(request).await?;
 
         let mut full_response = String::new();
         print!("{} ", style("┃").blue());
@@ -1826,7 +2013,7 @@ impl Repl {
         });
 
         let response = tokio::select! {
-            resp = self.client.chat(request) => resp?,
+            resp = self.client.llm_chat(request) => resp?,
             _ = cancel_rx.recv() => {
                 crossterm::terminal::disable_raw_mode().ok();
                 spinner.finish_and_clear();
@@ -2198,6 +2385,26 @@ impl Repl {
     }
 }
 
+/// Interpolate {{file}} and {{files}} placeholders in a phase command string.
+/// Returns None when the command uses {{file}} or {{files}} but context has no files.
+fn interpolate_phase_cmd(cmd: &str, context: &ContextManager) -> Option<String> {
+    let files = context.list_files();
+    let uses_file_placeholder = cmd.contains("{{file}}") || cmd.contains("{{files}}");
+    if uses_file_placeholder && files.is_empty() {
+        return None;
+    }
+    let first = files
+        .first()
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+    let all = files
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(" ");
+    Some(cmd.replace("{{file}}", &first).replace("{{files}}", &all))
+}
+
 /// Get directories to search for templates
 fn get_template_directories(project_root: &std::path::Path) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
@@ -2394,4 +2601,462 @@ pub async fn run_single_prompt(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::ollama::{ChatRequest, LlmBackend, ModelInfo};
+    use crate::templates::{PhaseFeedback, PhaseOutcome, TemplatePhase};
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+    use tokio::sync::mpsc;
+
+    // ── Mock LLM backend ─────────────────────────────────────────────────────
+
+    /// Records every request sent so tests can assert on the content.
+    struct MockLlmBackend {
+        /// Canned response to return for every request.
+        response: String,
+        /// The last-user-message content from each `llm_chat` call, in order.
+        sent: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl MockLlmBackend {
+        fn new(response: impl Into<String>) -> (Self, Arc<Mutex<Vec<String>>>) {
+            let sent = Arc::new(Mutex::new(Vec::new()));
+            let backend = Self {
+                response: response.into(),
+                sent: Arc::clone(&sent),
+            };
+            (backend, sent)
+        }
+    }
+
+    impl LlmBackend for MockLlmBackend {
+        async fn llm_chat(&self, request: ChatRequest) -> crate::error::Result<String> {
+            // Record the last user message so tests can inspect what was sent.
+            if let Some(last) = request.messages.iter().rev().find(|m| m.role == "user") {
+                self.sent.lock().unwrap().push(last.content.clone());
+            }
+            Ok(self.response.clone())
+        }
+
+        async fn llm_stream(
+            &self,
+            request: ChatRequest,
+        ) -> crate::error::Result<mpsc::Receiver<crate::error::Result<String>>> {
+            let text = self.llm_chat(request).await?;
+            let (tx, rx) = mpsc::channel(1);
+            tokio::spawn(async move {
+                let _ = tx.send(Ok(text)).await;
+            });
+            Ok(rx)
+        }
+
+        async fn llm_list_models(&self) -> crate::error::Result<Vec<ModelInfo>> {
+            Ok(vec![])
+        }
+    }
+
+    // ── Helper ────────────────────────────────────────────────────────────────
+
+    fn make_repl(backend: MockLlmBackend) -> Repl<MockLlmBackend> {
+        Repl::new(backend, Config::default(), "test-model".into(), false)
+    }
+
+    fn phase(run: &str, on_success: PhaseOutcome, on_failure: PhaseOutcome) -> TemplatePhase {
+        TemplatePhase {
+            name: Some("test".into()),
+            run: run.to_string(),
+            on_success,
+            on_failure,
+            feedback: PhaseFeedback::OnFailure,
+            follow_up: None,
+        }
+    }
+
+    // ── interpolate_phase_cmd tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_interpolate_no_files_no_placeholder() {
+        // Commands without {{file}} should always return Some, even with no context files.
+        let ctx = crate::context::ContextManager::new(4096, PathBuf::from("."));
+        let result = interpolate_phase_cmd("echo hello", &ctx);
+        assert_eq!(result, Some("echo hello".to_string()));
+    }
+
+    #[test]
+    fn test_interpolate_file_placeholder_empty_context() {
+        // Bug 3: {{file}} with no context files → None (phase should be skipped).
+        let ctx = crate::context::ContextManager::new(4096, PathBuf::from("."));
+        let result = interpolate_phase_cmd("gcc {{file}}", &ctx);
+        assert!(result.is_none(), "expected None when context has no files");
+    }
+
+    #[test]
+    fn test_interpolate_files_placeholder_empty_context() {
+        let ctx = crate::context::ContextManager::new(4096, PathBuf::from("."));
+        let result = interpolate_phase_cmd("clang-tidy {{files}}", &ctx);
+        assert!(result.is_none());
+    }
+
+    // ── Template YAML field serialization ─────────────────────────────────────
+
+    #[test]
+    fn test_phase_feedback_default_is_on_failure() {
+        let yaml = r#"
+name: test
+command: /test
+description: test
+prompt: hello
+phases:
+  - name: check
+    run: "true"
+"#;
+        let tpl: crate::templates::PromptTemplate =
+            serde_yaml::from_str(yaml).expect("parse failed");
+        assert_eq!(tpl.phases[0].feedback, PhaseFeedback::OnFailure);
+        assert_eq!(tpl.phases[0].follow_up, None);
+    }
+
+    #[test]
+    fn test_template_new_fields_deserialize() {
+        let yaml = r#"
+name: test
+command: /test
+description: test
+prompt: hello
+phases_follow_up: "Fix the issues."
+max_phases: 3
+phases:
+  - name: compile
+    run: "gcc {{file}}"
+    feedback: always
+    on_success: stop
+    on_failure: continue
+    follow_up: "Please fix compile errors."
+"#;
+        let tpl: crate::templates::PromptTemplate =
+            serde_yaml::from_str(yaml).expect("parse failed");
+        assert_eq!(tpl.phases_follow_up.as_deref(), Some("Fix the issues."));
+        assert_eq!(tpl.max_phases, Some(3));
+        assert_eq!(tpl.phases[0].feedback, PhaseFeedback::Always);
+        assert_eq!(
+            tpl.phases[0].follow_up.as_deref(),
+            Some("Please fix compile errors.")
+        );
+    }
+
+    // ── run_phase_loop: Bug 1 — single message per pass ───────────────────────
+
+    #[tokio::test]
+    async fn test_single_message_sent_per_pass() {
+        // The loop must call send_message exactly once per pass (not once for
+        // context injection + once for the follow-up — that was Bug 1).
+        let (backend, sent) = MockLlmBackend::new("fixed");
+        let mut repl = make_repl(backend);
+
+        let phases = vec![phase("false", PhaseOutcome::Stop, PhaseOutcome::Continue)];
+        // One pass: answer y; second pass: answer n.
+        let mut answers = vec![true, false].into_iter();
+        repl.run_phase_loop(&phases, 10, None, |_| answers.next().unwrap_or(false))
+            .await
+            .unwrap();
+
+        let calls = sent.lock().unwrap();
+        // Exactly one llm_chat call per pass that had issues.
+        assert_eq!(calls.len(), 1, "expected exactly 1 LLM call for 1 pass");
+    }
+
+    #[tokio::test]
+    async fn test_single_message_contains_results_and_follow_up() {
+        // The one message per pass must contain both phase output AND follow-up text.
+        // confirm=true + max_iterations=1 → message fires on pass 1, loop ends on pass 2.
+        let (backend, sent) = MockLlmBackend::new("done");
+        let mut repl = make_repl(backend);
+
+        let phases = vec![TemplatePhase {
+            name: Some("mycheck".into()),
+            run: "sh -c 'echo myoutput; exit 1'".to_string(),
+            on_success: PhaseOutcome::Stop,
+            on_failure: PhaseOutcome::Continue,
+            feedback: PhaseFeedback::OnFailure,
+            follow_up: Some("My phase follow-up.".into()),
+        }];
+        repl.run_phase_loop(&phases, 1, None, |_| true)
+            .await
+            .unwrap();
+
+        let calls = sent.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        let msg = &calls[0];
+        assert!(
+            msg.contains("myoutput"),
+            "phase output missing from message"
+        );
+        assert!(
+            msg.contains("My phase follow-up."),
+            "follow-up missing from message"
+        );
+    }
+
+    // ── run_phase_loop: Bug 2 — exec error respects on_failure ────────────────
+
+    #[tokio::test]
+    async fn test_exec_error_on_failure_stop_does_not_loop() {
+        // Bug 2: when a command fails to exec and on_failure == Stop, the loop
+        // should NOT call send_message (i.e. should not trigger a continuation).
+        let (backend, sent) = MockLlmBackend::new("ok");
+        let mut repl = make_repl(backend);
+
+        // Use an invalid command so exec itself fails; on_failure = Stop.
+        let phases = vec![TemplatePhase {
+            name: Some("bad".into()),
+            run: "/nonexistent_binary_xyz_abc".to_string(),
+            on_success: PhaseOutcome::Stop,
+            on_failure: PhaseOutcome::Stop, // <-- Stop, not Continue
+            feedback: PhaseFeedback::OnFailure,
+            follow_up: None,
+        }];
+        repl.run_phase_loop(&phases, 10, None, |_| false)
+            .await
+            .unwrap();
+
+        let calls = sent.lock().unwrap();
+        assert_eq!(
+            calls.len(),
+            0,
+            "exec error with on_failure=Stop must not trigger LLM call"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_exec_error_on_failure_continue_does_loop() {
+        // Exec error with on_failure=Continue SHOULD loop.
+        let (backend, sent) = MockLlmBackend::new("ok");
+        let mut repl = make_repl(backend);
+
+        let phases = vec![TemplatePhase {
+            name: Some("bad".into()),
+            run: "/nonexistent_binary_xyz_abc".to_string(),
+            on_success: PhaseOutcome::Stop,
+            on_failure: PhaseOutcome::Continue,
+            feedback: PhaseFeedback::OnFailure,
+            follow_up: None,
+        }];
+        // confirm=true + max_iterations=1 → message fires on pass 1, loop exits on pass 2.
+        repl.run_phase_loop(&phases, 1, None, |_| true)
+            .await
+            .unwrap();
+
+        let calls = sent.lock().unwrap();
+        assert_eq!(
+            calls.len(),
+            1,
+            "exec error with on_failure=Continue must trigger LLM call"
+        );
+    }
+
+    // ── run_phase_loop: Bug 3 — empty context skips {{file}} phases ───────────
+
+    #[tokio::test]
+    async fn test_empty_context_skips_file_phase() {
+        // Bug 3: phase with {{file}} and no context files must be skipped entirely,
+        // not run with an empty string substituted.
+        let (backend, sent) = MockLlmBackend::new("ok");
+        let mut repl = make_repl(backend);
+
+        // This phase would fail for the wrong reason if {{file}} expanded to "".
+        // With the fix it should simply be skipped (no continue triggered).
+        let phases = vec![phase(
+            "gcc -Wall {{file}}",
+            PhaseOutcome::Stop,
+            PhaseOutcome::Continue,
+        )];
+        repl.run_phase_loop(&phases, 10, None, |_| false)
+            .await
+            .unwrap();
+
+        let calls = sent.lock().unwrap();
+        assert_eq!(
+            calls.len(),
+            0,
+            "phase should be skipped when context has no files"
+        );
+    }
+
+    // ── PhaseFeedback: Always / Never ─────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_feedback_always_injects_on_success() {
+        // feedback: Always must include phase output in LLM message even when
+        // the command succeeds (exit 0).  on_success=Continue so the loop runs.
+        let (backend, sent) = MockLlmBackend::new("done");
+        let mut repl = make_repl(backend);
+
+        let phases = vec![TemplatePhase {
+            name: Some("report".into()),
+            run: "sh -c 'echo always_output; exit 0'".to_string(),
+            on_success: PhaseOutcome::Continue,
+            on_failure: PhaseOutcome::Continue,
+            feedback: PhaseFeedback::Always,
+            follow_up: None,
+        }];
+        repl.run_phase_loop(&phases, 1, None, |_| true)
+            .await
+            .unwrap();
+
+        let calls = sent.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert!(
+            calls[0].contains("always_output"),
+            "feedback:Always must inject output even on success"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_feedback_on_failure_does_not_inject_on_success() {
+        // feedback: OnFailure (default) must NOT include output when exit 0.
+        let (backend, sent) = MockLlmBackend::new("done");
+        let mut repl = make_repl(backend);
+
+        let phases = vec![TemplatePhase {
+            name: Some("check".into()),
+            run: "sh -c 'echo clean_output; exit 0'".to_string(),
+            on_success: PhaseOutcome::Continue,
+            on_failure: PhaseOutcome::Continue,
+            feedback: PhaseFeedback::OnFailure,
+            follow_up: None,
+        }];
+        repl.run_phase_loop(&phases, 1, None, |_| true)
+            .await
+            .unwrap();
+
+        let calls = sent.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert!(
+            !calls[0].contains("clean_output"),
+            "feedback:OnFailure must not inject output on success"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_feedback_never_never_injects() {
+        // feedback: Never must not include phase output in the LLM message at all.
+        let (backend, sent) = MockLlmBackend::new("done");
+        let mut repl = make_repl(backend);
+
+        let phases = vec![TemplatePhase {
+            name: Some("noisy".into()),
+            run: "sh -c 'echo never_output; exit 1'".to_string(),
+            on_success: PhaseOutcome::Stop,
+            on_failure: PhaseOutcome::Continue,
+            feedback: PhaseFeedback::Never,
+            follow_up: None,
+        }];
+        repl.run_phase_loop(&phases, 1, None, |_| true)
+            .await
+            .unwrap();
+
+        let calls = sent.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert!(
+            !calls[0].contains("never_output"),
+            "feedback:Never must not inject output"
+        );
+    }
+
+    // ── Follow-up precedence ──────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_follow_up_per_phase_beats_template() {
+        // Per-phase follow_up must take precedence over template-level phases_follow_up.
+        let (backend, sent) = MockLlmBackend::new("done");
+        let mut repl = make_repl(backend);
+
+        let phases = vec![TemplatePhase {
+            name: Some("check".into()),
+            run: "false".to_string(),
+            on_success: PhaseOutcome::Stop,
+            on_failure: PhaseOutcome::Continue,
+            feedback: PhaseFeedback::OnFailure,
+            follow_up: Some("PER_PHASE_FOLLOW_UP".into()),
+        }];
+        repl.run_phase_loop(&phases, 1, Some("TEMPLATE_FOLLOW_UP"), |_| true)
+            .await
+            .unwrap();
+
+        let calls = sent.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert!(
+            calls[0].contains("PER_PHASE_FOLLOW_UP"),
+            "per-phase follow_up must appear in message"
+        );
+        assert!(
+            !calls[0].contains("TEMPLATE_FOLLOW_UP"),
+            "template follow_up must not appear when per-phase wins"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_follow_up_template_beats_default() {
+        // Template-level phases_follow_up must beat the hardcoded default.
+        let (backend, sent) = MockLlmBackend::new("done");
+        let mut repl = make_repl(backend);
+
+        let phases = vec![phase("false", PhaseOutcome::Stop, PhaseOutcome::Continue)];
+        repl.run_phase_loop(&phases, 1, Some("TEMPLATE_FOLLOW_UP"), |_| true)
+            .await
+            .unwrap();
+
+        let calls = sent.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert!(
+            calls[0].contains("TEMPLATE_FOLLOW_UP"),
+            "template follow_up must appear when no per-phase follow_up"
+        );
+        assert!(
+            !calls[0].contains("The checks above found issues"),
+            "default follow_up must not appear when template_follow_up is set"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_follow_up_default_used_when_no_others() {
+        // Hardcoded default must be used when neither per-phase nor template follow_up is set.
+        let (backend, sent) = MockLlmBackend::new("done");
+        let mut repl = make_repl(backend);
+
+        let phases = vec![phase("false", PhaseOutcome::Stop, PhaseOutcome::Continue)];
+        repl.run_phase_loop(&phases, 1, None, |_| true)
+            .await
+            .unwrap();
+
+        let calls = sent.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert!(
+            calls[0].contains("The checks above found issues"),
+            "hardcoded default follow_up must be used when no others are set"
+        );
+    }
+
+    // ── max_phases / loop limit ───────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_loop_stops_at_max_phases() {
+        // Loop must stop after max_iterations even when user keeps answering y.
+        let (backend, sent) = MockLlmBackend::new("done");
+        let mut repl = make_repl(backend);
+
+        let phases = vec![phase("false", PhaseOutcome::Stop, PhaseOutcome::Continue)];
+        // Always say yes — the max_iterations cap must stop it at 3.
+        repl.run_phase_loop(&phases, 3, None, |_| true)
+            .await
+            .unwrap();
+
+        let calls = sent.lock().unwrap();
+        assert_eq!(calls.len(), 3, "loop must stop after max_iterations passes");
+    }
 }

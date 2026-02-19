@@ -11,6 +11,28 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.0.0] - 2026-02-19
+
+### Added
+
+- **Phase loop `feedback` field** — each phase can now declare `feedback: always` (inject output into LLM context even on exit 0), `feedback: never` (print to terminal only), or `feedback: on_failure` (default, preserves existing behavior). Enables monitoring/reporting tools like complexity checkers that should always report to the LLM but only re-loop on violations
+- **Per-phase `follow_up` prompts** — each phase can specify its own follow-up message sent to the LLM when that phase triggers `continue`. Precedence: per-phase → template-level `phases_follow_up` → hardcoded default
+- **`phases_follow_up` template field** — template-level fallback follow-up prompt, used when no triggered phase has its own `follow_up`
+- **`max_phases` template field** — caps the number of phase loop iterations; defaults to 10 if unset
+- **`/c-quality` template** — new template seeded by `slab init`; runs an iterative compile check (`gcc -fsyntax-only`) followed by a complexity check (`lizard --CCN 10`, swappable). Uses `feedback: always` on the complexity phase so the LLM always sees the report, and only re-loops on violations
+
+### Fixed
+
+- **Phase loop sent two consecutive user messages per pass** — phase results were added to context via `add_message`, then `send_message` added a second user turn before any assistant response, violating chat API conventions. Both are now combined into a single `send_message` call
+- **Exec errors always triggered loop continuation** — shell errors (command not found, permission denied) unconditionally set `any_continue = true`, ignoring the phase's `on_failure` setting. Now correctly gated: only continues when `on_failure == continue`
+- **`{{file}}` with empty context ran broken commands** — when no files were in context, `{{file}}` expanded to `""`, producing commands like `gcc -Wall ""` that failed for the wrong reason and triggered looping incorrectly. Phases using `{{file}}` or `{{files}}` are now skipped with a warning when context is empty
+
+### Changed
+
+- **`LlmBackend` trait** — `OllamaClient` now implements a `LlmBackend` trait; `Repl<B: LlmBackend>` is generic over the backend. Existing behavior is unchanged (default type parameter is `OllamaClient`); this enables unit testing of the phase loop without a real Ollama server
+
+---
+
 ## [0.6.1] - 2026-02-19
 
 ### Added

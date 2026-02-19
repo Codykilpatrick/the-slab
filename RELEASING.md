@@ -46,11 +46,29 @@ git add Cargo.toml Cargo.lock
 git commit -m "Bump version to X.Y.Z"
 ```
 
-### 3. Update the README
+### 3. Update CHANGELOG.md
+
+Move everything under `## [Unreleased]` into a new versioned section at the top of the release history, then restore an empty `[Unreleased]` block:
+
+```markdown
+## [Unreleased]
+
+---
+
+## [X.Y.Z] - YYYY-MM-DD
+
+### Fixed
+
+- ...
+```
+
+Commit the changelog alongside the version bump (or as its own commit).
+
+### 4. Update the README
 
 Make sure `README.md` reflects any new features or changed behavior since the last release. Commit any changes before tagging.
 
-### 4. Tag and push
+### 5. Tag and push
 
 ```bash
 git tag vX.Y.Z
@@ -59,7 +77,7 @@ git push origin main --tags
 
 That's it. The [release workflow](.github/workflows/release.yml) picks up the tag and handles the rest.
 
-### 5. Verify the release
+### 6. Verify the release
 
 Check [GitHub Releases](https://github.com/Codykilpatrick/the-slab/releases) after a few minutes — the workflow takes ~5–10 minutes to build all targets. Confirm all four `.tar.gz` artifacts are attached.
 

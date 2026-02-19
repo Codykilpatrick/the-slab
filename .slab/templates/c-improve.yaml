@@ -51,3 +51,11 @@ prompt: |
   Keep reasons to one short phrase.
 
   {{files}}
+
+# After the LLM improves the code, run static analysis and loop back if issues are found.
+# Swap "cppcheck" for "gcc -Wall -Wextra -o /dev/null" or "clang-tidy" as needed.
+phases:
+  - name: "static analysis"
+    run: "cppcheck --enable=all --error-exitcode=1 {{file}}"
+    on_success: stop
+    on_failure: continue

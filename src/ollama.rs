@@ -5,6 +5,39 @@ use tokio::sync::mpsc;
 
 use crate::error::{Result, SlabError};
 
+/// Trait abstracting LLM communication so `Repl` can be generic over the backend.
+/// The real implementation is `OllamaClient`; tests use `MockLlmBackend`.
+pub trait LlmBackend: Send + Sync {
+    /// Send a chat request and return the complete response text (non-streaming).
+    fn llm_chat(
+        &self,
+        request: ChatRequest,
+    ) -> impl std::future::Future<Output = Result<String>> + Send;
+
+    /// Send a chat request and return a streaming receiver.
+    fn llm_stream(
+        &self,
+        request: ChatRequest,
+    ) -> impl std::future::Future<Output = Result<mpsc::Receiver<Result<String>>>> + Send;
+
+    /// List available models.
+    fn llm_list_models(&self) -> impl std::future::Future<Output = Result<Vec<ModelInfo>>> + Send;
+}
+
+impl LlmBackend for OllamaClient {
+    async fn llm_chat(&self, request: ChatRequest) -> Result<String> {
+        self.chat(request).await
+    }
+
+    async fn llm_stream(&self, request: ChatRequest) -> Result<mpsc::Receiver<Result<String>>> {
+        self.chat_stream(request).await
+    }
+
+    async fn llm_list_models(&self) -> Result<Vec<ModelInfo>> {
+        self.list_models().await
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct OllamaClient {
     client: Client,

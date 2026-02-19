@@ -842,8 +842,61 @@ prompt: |
   Keep reasons to one short phrase.
 
   {{files}}
+
+# After the LLM improves the code, run static analysis and loop back if issues are found.
+# Swap "cppcheck" for "gcc -Wall -Wextra -o /dev/null" or "clang-tidy" as needed.
+phases:
+  - name: "static analysis"
+    run: "cppcheck --enable=all --error-exitcode=1 {{file}}"
+    on_success: stop
+    on_failure: continue
 "#;
     std::fs::write(".slab/templates/c-improve.yaml", c_improve_template)?;
+
+    let c_quality_template = r#"name: c-quality
+command: /c-quality
+description: Improve C code quality with iterative compile and complexity feedback
+phases_follow_up: "Fix all issues found above and output the complete corrected file."
+max_phases: 5
+prompt: |
+  Improve the quality of the attached C code. Focus on correctness, clarity,
+  and keeping cyclomatic complexity below 10 per function.
+
+  IMPORTANT: Output the COMPLETE improved file inside a fenced code block
+  annotated with the target file path using this exact format:
+
+  ```c:/path/to/the/original/file.c
+  // complete improved code here
+  ```
+
+  Use the exact path of the source file provided in context. The path after
+  the colon is critical — it tells the system which file to create or
+  overwrite. You MUST include every line of the file, not just changed
+  sections. Do NOT omit any code or use "// ... rest unchanged" placeholders.
+
+  {{files}}
+
+# Phase 1: compile check — universally available, clean exit code semantics
+phases:
+  - name: "compile"
+    run: "gcc -Wall -Wextra -Wno-unused-result -fsyntax-only {{file}}"
+    feedback: on_failure
+    on_success: stop
+    on_failure: continue
+    follow_up: "Fix all compilation errors and warnings shown above. Output the complete corrected file."
+
+  # Phase 2: complexity — swap in your preferred tool; must exit non-zero on violations
+  # Examples:
+  #   run: "lizard --CCN 10 {{file}}"
+  #   run: "pmccabe -v {{file}} | awk '$1 > 10 { found=1 } END { exit found }'"
+  - name: "complexity"
+    run: "lizard --CCN 10 {{file}}"
+    feedback: always        # LLM always sees the report, even when clean
+    on_success: stop
+    on_failure: continue
+    follow_up: "The complexity report is above. Refactor flagged functions to reduce complexity. Output the complete corrected file."
+"#;
+    std::fs::write(".slab/templates/c-quality.yaml", c_quality_template)?;
 
     let analyze_template = r#"name: analyze
 command: /analyze
@@ -923,6 +976,7 @@ tags:
     println!("    .slab/templates/review.yaml");
     println!("    .slab/templates/c-to-rust.yaml");
     println!("    .slab/templates/c-improve.yaml");
+    println!("    .slab/templates/c-quality.yaml");
     println!("    .slab/templates/analyze.yaml");
     println!("    .slab/templates/explain.yaml");
     println!("    .slab/tests/basic.yaml");
