@@ -57,6 +57,11 @@ impl ContextManager {
         }
     }
 
+    /// Return the directory from which the user started the chat session
+    pub fn initial_cwd(&self) -> &PathBuf {
+        &self.initial_cwd
+    }
+
     /// Set the system prompt
     pub fn set_system_prompt(&mut self, prompt: impl Into<String>) {
         self.system_prompt = Some(prompt.into());

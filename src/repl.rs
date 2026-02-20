@@ -636,7 +636,7 @@ impl<B: LlmBackend> Repl<B> {
 
         let ctx = CompletionContext {
             context_files,
-            cwd: &self.project_root,
+            cwd: self.context.initial_cwd(),
             models: self.cached_models.clone(),
             history: &self.history,
         };
