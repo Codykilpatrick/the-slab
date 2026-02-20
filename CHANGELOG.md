@@ -11,6 +11,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.1.1] - 2026-02-20
+
+### Fixed
+
+- **`/add` ghost completion resolves paths from launch directory, not project root** — tab completion and inline preview for `/add` were using the project root (where `.slab/` lives) as the working directory instead of the directory the user ran `slab chat` from, causing file suggestions to be wrong when running from a subdirectory.
+
+---
+
 ## [1.1.0] - 2026-02-20
 
 ### Added
