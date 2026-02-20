@@ -11,6 +11,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.1.0] - 2026-02-20
+
+### Added
+
+- **`/c-rationale` template** — new template seeded by `slab init` that produces two outputs in one pass: the MISRA/CERT-refactored C source file and a self-contained HTML change rationale report (`.slab/reports/change-rationale-{basename}.html`). The HTML includes an executive summary, a capability map table (RETAINED / TRANSFORMED / DROPPED badges per function/behavior), collapsible before/after category sections (Type Safety, Error Handling, Memory Safety, Interface Clarity), and a standards compliance table with MISRA C:2012 and CERT C citations. Dark-themed, inline CSS only, no external dependencies.
+
+---
+
 ## [1.0.0] - 2026-02-19
 
 ### Added
