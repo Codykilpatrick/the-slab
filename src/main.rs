@@ -853,6 +853,103 @@ phases:
 "#;
     std::fs::write(".slab/templates/c-improve.yaml", c_improve_template)?;
 
+    let c_rationale_template = r#"name: c_rationale
+command: /c-rationale
+description: Refactor C to safe/robust C (MISRA/CERT) and generate an HTML change rationale report
+prompt: |
+  This is a TWO-PART task. You must output BOTH parts, in order, without
+  stopping after part 1.
+
+  Refactor the attached C code into safer, more robust C.
+
+  Requirements:
+  1. Use fixed-width types (stdint.h) - uint32_t, int64_t, size_t, etc.
+  2. Add explicit error handling with enum return codes
+  3. Remove all static/global state - pass context explicitly
+  4. Add const correctness for all read-only parameters
+  5. Add restrict keywords for non-aliasing pointers
+  6. Add NULL pointer checks at function entry
+  7. Add bounds checking for array accesses
+  8. Use bool from stdbool.h instead of int flags
+  9. Add comprehensive function documentation
+  10. Keep cyclomatic complexity < 10
+  11. Maximum function length: 50 lines
+  12. MAINTAIN PERFORMANCE - no heap allocations in hot paths
+  13. Use `restrict` only on pointer parameters (e.g. `const Contact *restrict contacts`); do not use `restrict` on `main`'s `argv` or in array declarators (e.g. use `float data[MAX_SIGNALS]` not `float data[restrict MAX_SIGNALS]`), so the code compiles as standard C on Clang and GCC.
+
+  Target standards: MISRA C:2012, CERT C
+
+  ── PART 1 of 2: Refactored C source ─────────────────────────────────────
+
+  Output the COMPLETE refactored source file:
+
+  ```c:/path/to/the/original/file.c
+  // every line — no placeholders
+  ```
+
+  Use the exact file path from context. Include every line of the file.
+  Do NOT write "// ... rest unchanged".
+
+  ── PART 2 of 2: HTML change rationale (output immediately after Part 1) ──
+
+  ```html:.slab/reports/change-rationale-{source-basename}.html
+  <!DOCTYPE html>
+  <html lang="en">
+  ...complete self-contained HTML...
+  </html>
+  ```
+
+  HTML rules:
+  - Inline CSS only — no <link>, <script src>, or external resources
+  - Code snippets MUST use <pre><code>...</code></pre> — NEVER use
+    triple-backtick fences inside the HTML (they break the parser)
+  - Use <details><summary>...</summary>...</details> for collapsible sections
+  - Dark theme: body #1b1b1b, text #e0e0e0, card bg #2a2a2a,
+    green #2d6a4f, yellow #b5820a, red #9d0208
+
+  HTML must contain these five sections:
+
+  A — HEADER: the exact source file path (not a placeholder) and today's date.
+  The HTML file path must be .slab/reports/change-rationale-{basename}.html
+  where {basename} is the source filename without extension (e.g. for
+  packages/sonar-legacy/main.c the report path is
+  .slab/reports/change-rationale-main.html).
+
+  B — EXECUTIVE SUMMARY: 2–3 sentence prose paragraph (not a list)
+  describing the architectural intent of the refactoring
+
+  C — CAPABILITY MAP: one table row per original function/behavior
+    • Status badge: RETAINED (green) | TRANSFORMED (yellow) | DROPPED (red)
+    • Old: construct AS IT APPEARED IN THE ORIGINAL SOURCE (in <code> tags)
+    • New: the new construct after refactoring (in <code> tags), or "—"
+    • Why: one plain-English sentence
+    Summary line: "X Retained · Y Transformed · Z Dropped"
+
+  D — CHANGES BY CATEGORY: one <details> block for each applicable category
+  (Type Safety / Error Handling / Memory Safety / Interface Clarity).
+  Each: one paragraph + a before/after example in <pre><code> tags.
+  The BEFORE snippet must show the OLD pattern from the original source.
+  The AFTER snippet must show the NEW pattern in the refactored code.
+  They must differ — do not copy the same code into both.
+
+  E — STANDARDS COMPLIANCE: table — Change | MISRA Rule | CERT Rule
+
+  {{files}}
+
+  You have now read the source file. Output PART 1 (refactored C) followed
+  immediately by PART 2 (HTML report). Both are required. Do not stop after
+  Part 1.
+
+# After the LLM improves the code, run static analysis and loop back if issues are found.
+# Swap "cppcheck" for "gcc -Wall -Wextra -o /dev/null" or "clang-tidy" as needed.
+# phases:
+#   - name: "static analysis"
+#     run: "cppcheck --enable=all --error-exitcode=1 {{file}}"
+#     on_success: stop
+#     on_failure: continue
+"#;
+    std::fs::write(".slab/templates/c-rationale.yaml", c_rationale_template)?;
+
     let c_quality_template = r#"name: c-quality
 command: /c-quality
 description: Improve C code quality with iterative compile and complexity feedback
