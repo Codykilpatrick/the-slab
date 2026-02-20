@@ -1073,6 +1073,7 @@ tags:
     println!("    .slab/templates/review.yaml");
     println!("    .slab/templates/c-to-rust.yaml");
     println!("    .slab/templates/c-improve.yaml");
+    println!("    .slab/templates/c-rationale.yaml");
     println!("    .slab/templates/c-quality.yaml");
     println!("    .slab/templates/analyze.yaml");
     println!("    .slab/templates/explain.yaml");
