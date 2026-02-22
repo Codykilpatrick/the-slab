@@ -1299,6 +1299,66 @@ impl<B: LlmBackend> Repl<B> {
                 }
                 Ok(true)
             }
+            "export" => {
+                use chrono::Local;
+                use std::fmt::Write as FmtWrite;
+
+                let messages = self.context.messages();
+                if messages.is_empty() {
+                    println!(
+                        "{}",
+                        style("Nothing to export — conversation is empty.").dim()
+                    );
+                    return Ok(true);
+                }
+
+                // Determine output path
+                let filename = if parts.len() > 1 {
+                    parts[1..].join(" ")
+                } else {
+                    format!("slab-export-{}.txt", Local::now().format("%Y-%m-%d-%H%M%S"))
+                };
+                let output_path = std::path::Path::new(&filename);
+
+                // Build plain-text export (no ANSI codes — safe for tmux/pipes)
+                let mut out = String::new();
+                let _ = writeln!(out, "=== Slab Chat Export ===");
+                let _ = writeln!(
+                    out,
+                    "Date:     {}",
+                    Local::now().format("%Y-%m-%d %H:%M:%S")
+                );
+                let _ = writeln!(out, "Model:    {}", self.model);
+                let _ = writeln!(out, "Messages: {}", messages.len());
+                let _ = writeln!(out, "{}", "=".repeat(40));
+
+                for (i, msg) in messages.iter().enumerate() {
+                    let _ = writeln!(out);
+                    let role = msg.role.to_uppercase();
+                    let _ = writeln!(out, "[{}] {}", i + 1, role);
+                    let _ = writeln!(out, "{}", "-".repeat(40));
+                    let _ = writeln!(out, "{}", msg.content);
+                }
+
+                let _ = writeln!(out);
+                let _ = writeln!(out, "{}", "=".repeat(40));
+                let _ = writeln!(out, "End of export");
+
+                match std::fs::write(output_path, &out) {
+                    Ok(()) => {
+                        println!(
+                            "{} Exported {} message(s) to {}",
+                            style("✓").green(),
+                            messages.len(),
+                            style(output_path.display()).cyan()
+                        );
+                    }
+                    Err(e) => {
+                        println!("{} Failed to write export: {}", style("✗").red(), e);
+                    }
+                }
+                Ok(true)
+            }
             "pwd" => {
                 let cwd = std::env::current_dir().unwrap_or_else(|_| self.project_root.clone());
                 println!("{}", style(cwd.display()).cyan());
@@ -1626,6 +1686,7 @@ impl<B: LlmBackend> Repl<B> {
             ("/rules", "Show loaded rules"),
             ("/rule enable|disable", "Enable/disable a rule"),
             ("/exec <command>", "Run a shell command"),
+            ("/export [file]", "Export chat to a text file"),
         ];
 
         let mut content = String::new();
@@ -1793,6 +1854,15 @@ impl<B: LlmBackend> Repl<B> {
                 "Runs the given command in the system shell (sh -c on Unix, cmd /C on Windows). \
                  Use for one-off commands like podman/docker exec, running scripts, etc.\n\n\
                  Example:\n  /exec podman exec container echo hello world",
+            ),
+            "export" => (
+                "/export [filename]",
+                "Export chat to a plain-text file",
+                "Writes the full conversation to a plain-text file with no ANSI escape codes, \
+                 making it safe to open in any editor or share via email/ticket. \
+                 Works correctly through tmux and other terminal multiplexers.\n\n\
+                 If no filename is given, a timestamped file is created in the current directory.\n\n\
+                 Examples:\n  /export                     - Save to slab-export-YYYY-MM-DD-HHMMSS.txt\n  /export chat.txt            - Save to chat.txt\n  /export /tmp/debug-chat.txt - Save to an absolute path",
             ),
             _ => {
                 // Check if it's a template command

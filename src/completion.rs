@@ -388,6 +388,7 @@ impl CommandCompleter {
                 ("templates".into(), "List available templates".into()),
                 ("rules".into(), "Show loaded rules".into()),
                 ("exec".into(), "Run a shell command".into()),
+                ("export".into(), "Export chat to a text file".into()),
             ],
         }
     }

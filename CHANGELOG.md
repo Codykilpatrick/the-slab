@@ -11,6 +11,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.2.0] - 2026-02-22
+
+### Added
+
+- **`/export [filename]` command** — exports the full conversation to a plain-text file with no ANSI escape codes, making it safe to open in any editor or share via email/ticket. Works correctly through tmux and other terminal multiplexers. Without a filename argument a timestamped file (`slab-export-YYYY-MM-DD-HHMMSS.txt`) is created in the current directory; a custom path can be provided as an argument.
+
+---
+
 ## [1.1.1] - 2026-02-20
 
 ### Fixed

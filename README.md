@@ -212,6 +212,7 @@ For `slab chat`, files are loaded into context before the REPL starts (visible v
 | `/templates` | List available templates |
 | `/rules` | Show loaded rules |
 | `/rule enable\|disable <name>` | Enable or disable a rule |
+| `/export [file]` | Export full conversation to a plain-text file |
 
 ### Keyboard Shortcuts
 
