@@ -38,8 +38,12 @@ phases:
   - name: "gcc check"
     run: "gcc -Wall -Wextra -Werror -Iinclude -fsyntax-only {{file}}"
     feedback: on_failure
+    on_success: stop
+    on_failure: continue
     follow_up: "Fix all errors and warnings shown above. Output the complete corrected file."
   - name: "complexity"
     run: "python3 -m lizard --CCN 10 {{file}}"
     feedback: always
+    on_success: stop
+    on_failure: continue
     follow_up: "Refactor the flagged functions to reduce cyclomatic complexity below 10. Output the complete corrected file."

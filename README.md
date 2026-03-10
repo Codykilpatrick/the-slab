@@ -492,7 +492,7 @@ If no flag is given, you'll be prompted interactively after the response whether
 
 ### Phase Loop
 
-Templates can define a `phases` list — shell commands that run after the LLM responds. Phases run sequentially. If a phase fails, the loop halts, the output is fed back to the LLM, and a new improvement pass is requested. This creates an iterative fix loop: generate → check → fix → repeat.
+Templates can define a `phases` list — shell commands that run after the LLM responds. If a phase fails, the output is fed back to the LLM and a new improvement pass is requested. This creates an iterative fix loop: generate → check → fix → repeat.
 
 ```yaml
 # .slab/templates/c-quality.yaml
@@ -509,18 +509,17 @@ phases:
   - name: "compile"
     run: "gcc -Wall -Wextra -fsyntax-only {{file}}"
     feedback: on_failure   # inject output only when there are errors
+    on_success: stop
+    on_failure: continue
     follow_up: "Fix all compilation errors and warnings shown above."
 
   - name: "complexity"
     run: "lizard --CCN 10 {{file}}"
     feedback: always       # LLM always sees the report, even when clean
+    on_success: stop
+    on_failure: continue
     follow_up: "Refactor flagged functions to reduce complexity."
 ```
-
-**Behavior:**
-- **Success** — phase output is silently noted (per `feedback`) and the next phase runs
-- **Failure** — phase loop halts, output is injected into LLM context, `follow_up` is sent, loop asks to retry
-- All phases passing → `✓ All checks passed.`
 
 **Phase fields:**
 
@@ -528,19 +527,20 @@ phases:
 |-------|-------------|---------|
 | `name` | Label shown in output | `"phase"` |
 | `run` | Shell command. `{{file}}` and `{{files}}` are interpolated from context | required |
+| `on_success` | What to do when exit code is 0: `stop` or `continue` | `stop` |
+| `on_failure` | What to do when exit code is non-zero: `stop` or `continue` | `continue` |
 | `feedback` | When to inject output into LLM context: `on_failure`, `always`, or `never` | `on_failure` |
-| `follow_up` | Prompt sent to the LLM when this phase fails | none |
-| `required` | If `false`, failure is noted but the loop continues to the next phase | `true` |
+| `follow_up` | Per-phase follow-up prompt sent to the LLM when this phase triggers `continue` | none |
 
 **Template-level phase fields:**
 
 | Field | Description | Default |
 |-------|-------------|---------|
-| `phases_follow_up` | Fallback follow-up prompt when the failing phase has no `follow_up` | see below |
+| `phases_follow_up` | Fallback follow-up prompt when no per-phase `follow_up` is set | see below |
 | `max_phases` | Maximum number of loop iterations | `10` |
 
 **Follow-up precedence** (per pass, highest to lowest):
-1. `follow_up` from the failing phase
+1. Concatenated `follow_up` strings from phases that triggered `continue`
 2. Template-level `phases_follow_up`
 3. Hardcoded default: `"The checks above found issues. Please fix them and output the complete corrected file."`
 
@@ -549,8 +549,8 @@ phases:
 | Value | Behavior |
 |-------|----------|
 | `on_failure` | Inject phase output only when exit code ≠ 0 (default) |
-| `always` | Always inject — useful for reporting tools (e.g. complexity checkers) that output a report regardless of pass/fail |
-| `never` | Print to terminal only; never injected into LLM context |
+| `always` | Always inject — useful for reporting tools (e.g. complexity checkers) that should always inform the LLM |
+| `never` | Print to terminal only; never injected into context |
 
 The `/c-quality` template is seeded by `slab init` and demonstrates the full pattern: a compile phase with `feedback: on_failure` and a complexity phase with `feedback: always`.
 

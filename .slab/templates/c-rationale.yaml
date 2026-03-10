@@ -90,5 +90,5 @@ prompt: |
 # phases:
 #   - name: "static analysis"
 #     run: "cppcheck --enable=all --error-exitcode=1 {{file}}"
-#     feedback: on_failure
-#     follow_up: "Fix all static analysis errors shown above. Output the complete corrected file."
+#     on_success: stop
+#     on_failure: continue

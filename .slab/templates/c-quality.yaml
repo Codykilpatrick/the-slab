@@ -26,6 +26,8 @@ phases:
   - name: "compile"
     run: "gcc -Wall -Wextra -Wno-unused-result -fsyntax-only {{file}}"
     feedback: on_failure
+    on_success: stop
+    on_failure: continue
     follow_up: "Fix all compilation errors and warnings shown above. Output the complete corrected file."
 
   # Phase 2: complexity — swap in your preferred tool; must exit non-zero on violations
@@ -35,4 +37,6 @@ phases:
   - name: "complexity"
     run: "lizard --CCN 10 {{file}}"
     feedback: always        # LLM always sees the report, even when clean
+    on_success: stop
+    on_failure: continue
     follow_up: "The complexity report is above. Refactor flagged functions to reduce complexity. Output the complete corrected file."
