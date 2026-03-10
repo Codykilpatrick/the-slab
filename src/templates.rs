@@ -49,22 +49,6 @@ pub struct TemplateVariable {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "snake_case")]
-pub enum PhaseOutcome {
-    #[default]
-    Stop,
-    Continue,
-}
-
-fn default_on_success() -> PhaseOutcome {
-    PhaseOutcome::Stop
-}
-
-fn default_on_failure() -> PhaseOutcome {
-    PhaseOutcome::Continue
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
-#[serde(rename_all = "snake_case")]
 pub enum PhaseFeedback {
     #[default]
     OnFailure,
@@ -76,18 +60,26 @@ fn default_feedback() -> PhaseFeedback {
     PhaseFeedback::OnFailure
 }
 
+fn default_required() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TemplatePhase {
     pub name: Option<String>,
     pub run: String,
-    #[serde(default = "default_on_success")]
-    pub on_success: PhaseOutcome,
-    #[serde(default = "default_on_failure")]
-    pub on_failure: PhaseOutcome,
+    /// Controls whether phase output is injected into the LLM context.
+    /// `on_failure` (default): only on non-zero exit. `always`: always. `never`: never.
     #[serde(default = "default_feedback")]
     pub feedback: PhaseFeedback,
+    /// Message sent to the LLM when this phase fails. Falls back to the
+    /// template-level `phases_follow_up`, then a built-in default.
     #[serde(default)]
     pub follow_up: Option<String>,
+    /// If true (default), a non-zero exit halts the phase loop and triggers
+    /// another LLM pass. If false, failure is noted but phases continue.
+    #[serde(default = "default_required")]
+    pub required: bool,
 }
 
 /// Manages prompt templates

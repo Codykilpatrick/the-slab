@@ -11,6 +11,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.0] - 2026-03-10
+
+### Changed
+
+- **Phase loop semantics simplified** — removed `on_success` and `on_failure` fields from `TemplatePhase`. Behavior is now implicit: a phase that exits 0 silently proceeds to the next phase; a phase that exits non-zero halts the loop, injects output per the `feedback` setting, and triggers another LLM pass. This eliminates the ambiguity between "stop the loop" and "stop iterating phases" that the old `stop`/`continue` values created.
+- **`required` phase field added** — opt-out escape hatch for informational phases where failure should not halt the loop. Defaults to `true` (existing behavior). Set `required: false` for phases like optional linters that you want to run but not block on.
+- **Seeded templates updated** — `c-improve.yaml`, `c-quality.yaml`, and the commented example in `c-rationale.yaml` updated to remove `on_success`/`on_failure`.
+- **README Phase Loop section rewritten** — documents the new implicit sequential behavior, the `required` field, and removes references to `on_success`/`on_failure`.
+
+---
+
 ## [1.2.0] - 2026-02-22
 
 ### Added

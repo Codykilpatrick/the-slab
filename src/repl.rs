@@ -1379,7 +1379,7 @@ impl<B: LlmBackend> Repl<B> {
         template_follow_up: Option<&str>,
         mut confirm: impl FnMut(usize) -> bool,
     ) -> Result<()> {
-        use crate::templates::{PhaseFeedback, PhaseOutcome};
+        use crate::templates::PhaseFeedback;
 
         let mut pass = 1usize;
         loop {
@@ -1401,14 +1401,13 @@ impl<B: LlmBackend> Repl<B> {
                 style(format!("Phase loop: pass {}", pass)).bold()
             );
 
-            let mut any_continue = false;
+            let mut failed = false;
             let mut feedback_parts: Vec<String> = Vec::new();
             let mut follow_up_parts: Vec<String> = Vec::new();
 
-            for phase in phases {
+            'phases: for phase in phases {
                 let label = phase.name.as_deref().unwrap_or("phase");
 
-                // Bug 3: skip phases with {{file}}/{{files}} when context is empty
                 let cmd_str = match interpolate_phase_cmd(&phase.run, &self.context) {
                     Some(s) => s,
                     None => {
@@ -1429,23 +1428,10 @@ impl<B: LlmBackend> Repl<B> {
 
                 let output = Command::new("sh").arg("-c").arg(&cmd_str).output();
 
-                match output {
+                let (success, entry) = match output {
                     Err(e) => {
                         println!("  {} {}", style("Error running phase:").red(), e);
-                        // Bug 2: only continue when on_failure == Continue
-                        if phase.on_failure == PhaseOutcome::Continue {
-                            any_continue = true;
-                        }
-                        let entry = format!("[{}]: error: {}\n", label, e);
-                        match phase.feedback {
-                            PhaseFeedback::Never => {}
-                            _ => feedback_parts.push(entry),
-                        }
-                        if phase.on_failure == PhaseOutcome::Continue {
-                            if let Some(ref fu) = phase.follow_up {
-                                follow_up_parts.push(fu.clone());
-                            }
-                        }
+                        (false, format!("[{}]: error: {}\n", label, e))
                     }
                     Ok(out) => {
                         let stdout = String::from_utf8_lossy(&out.stdout);
@@ -1456,7 +1442,6 @@ impl<B: LlmBackend> Repl<B> {
                         if !stderr.is_empty() {
                             eprint!("{}", stderr);
                         }
-
                         let combined = format!("{}{}", stdout, stderr);
                         let entry = format!(
                             "[{}] (exit {}):\n{}\n",
@@ -1464,38 +1449,33 @@ impl<B: LlmBackend> Repl<B> {
                             out.status.code().unwrap_or(-1),
                             combined
                         );
-
-                        let outcome = if out.status.success() {
-                            &phase.on_success
-                        } else {
-                            &phase.on_failure
-                        };
-
-                        let triggers_continue = *outcome == PhaseOutcome::Continue;
-                        if triggers_continue {
-                            any_continue = true;
-                        }
-
-                        // Determine whether to inject into LLM context
-                        let should_inject = match phase.feedback {
-                            PhaseFeedback::Always => true,
-                            PhaseFeedback::OnFailure => !out.status.success(),
-                            PhaseFeedback::Never => false,
-                        };
-                        if should_inject {
-                            feedback_parts.push(entry);
-                        }
-
-                        if triggers_continue {
-                            if let Some(ref fu) = phase.follow_up {
-                                follow_up_parts.push(fu.clone());
-                            }
-                        }
+                        (out.status.success(), entry)
                     }
+                };
+
+                // Inject output into LLM context based on feedback setting
+                let should_inject = match phase.feedback {
+                    PhaseFeedback::Always => true,
+                    PhaseFeedback::OnFailure => !success,
+                    PhaseFeedback::Never => false,
+                };
+                if should_inject {
+                    feedback_parts.push(entry);
                 }
+
+                if !success && phase.required {
+                    // Required phase failed: collect follow-up and halt
+                    if let Some(ref fu) = phase.follow_up {
+                        follow_up_parts.push(fu.clone());
+                    }
+                    failed = true;
+                    break 'phases;
+                }
+                // Optional phase failed: note it but keep running
+                // Success: proceed to next phase
             }
 
-            if !any_continue {
+            if !failed {
                 println!(
                     "\n{} {}",
                     style("✓").green(),
@@ -1520,7 +1500,7 @@ impl<B: LlmBackend> Repl<B> {
                 return Ok(());
             }
 
-            // Resolve follow-up message (precedence: per-phase → template-level → default)
+            // Resolve follow-up (precedence: per-phase → template-level → built-in default)
             let follow_up_text = if !follow_up_parts.is_empty() {
                 follow_up_parts.join("\n\n")
             } else if let Some(tfu) = template_follow_up {
@@ -1529,12 +1509,11 @@ impl<B: LlmBackend> Repl<B> {
                 "The checks above found issues. Please fix them and output the complete corrected file.".to_string()
             };
 
-            let feedback_body = feedback_parts.join("\n");
-
-            // Bug 1: single send_message combines phase results + follow-up
             let combined = format!(
                 "[Phase results - pass {}]\n{}\n\n{}",
-                pass, feedback_body, follow_up_text
+                pass,
+                feedback_parts.join("\n"),
+                follow_up_text
             );
             self.send_message(&combined).await?;
 
@@ -2678,7 +2657,7 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use crate::ollama::{ChatRequest, LlmBackend, ModelInfo};
-    use crate::templates::{PhaseFeedback, PhaseOutcome, TemplatePhase};
+    use crate::templates::{PhaseFeedback, TemplatePhase};
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use tokio::sync::mpsc;
@@ -2736,14 +2715,13 @@ mod tests {
         Repl::new(backend, Config::default(), "test-model".into(), false)
     }
 
-    fn phase(run: &str, on_success: PhaseOutcome, on_failure: PhaseOutcome) -> TemplatePhase {
+    fn phase(run: &str) -> TemplatePhase {
         TemplatePhase {
             name: Some("test".into()),
             run: run.to_string(),
-            on_success,
-            on_failure,
             feedback: PhaseFeedback::OnFailure,
             follow_up: None,
+            required: true,
         }
     }
 
@@ -2804,9 +2782,10 @@ phases:
   - name: compile
     run: "gcc {{file}}"
     feedback: always
-    on_success: stop
-    on_failure: continue
     follow_up: "Please fix compile errors."
+  - name: optional-lint
+    run: "lint {{file}}"
+    required: false
 "#;
         let tpl: crate::templates::PromptTemplate =
             serde_yaml::from_str(yaml).expect("parse failed");
@@ -2817,6 +2796,8 @@ phases:
             tpl.phases[0].follow_up.as_deref(),
             Some("Please fix compile errors.")
         );
+        assert!(tpl.phases[0].required);
+        assert!(!tpl.phases[1].required);
     }
 
     // ── run_phase_loop: Bug 1 — single message per pass ───────────────────────
@@ -2828,7 +2809,7 @@ phases:
         let (backend, sent) = MockLlmBackend::new("fixed");
         let mut repl = make_repl(backend);
 
-        let phases = vec![phase("false", PhaseOutcome::Stop, PhaseOutcome::Continue)];
+        let phases = vec![phase("false")];
         // One pass: answer y; second pass: answer n.
         let mut answers = vec![true, false].into_iter();
         repl.run_phase_loop(&phases, 10, None, |_| answers.next().unwrap_or(false))
@@ -2850,10 +2831,9 @@ phases:
         let phases = vec![TemplatePhase {
             name: Some("mycheck".into()),
             run: "sh -c 'echo myoutput; exit 1'".to_string(),
-            on_success: PhaseOutcome::Stop,
-            on_failure: PhaseOutcome::Continue,
             feedback: PhaseFeedback::OnFailure,
             follow_up: Some("My phase follow-up.".into()),
+            required: true,
         }];
         repl.run_phase_loop(&phases, 1, None, |_| true)
             .await
@@ -2872,23 +2852,20 @@ phases:
         );
     }
 
-    // ── run_phase_loop: Bug 2 — exec error respects on_failure ────────────────
+    // ── run_phase_loop: required vs optional phase failure ────────────────────
 
     #[tokio::test]
-    async fn test_exec_error_on_failure_stop_does_not_loop() {
-        // Bug 2: when a command fails to exec and on_failure == Stop, the loop
-        // should NOT call send_message (i.e. should not trigger a continuation).
+    async fn test_optional_phase_failure_does_not_loop() {
+        // A phase with required: false that fails must NOT trigger an LLM call.
         let (backend, sent) = MockLlmBackend::new("ok");
         let mut repl = make_repl(backend);
 
-        // Use an invalid command so exec itself fails; on_failure = Stop.
         let phases = vec![TemplatePhase {
-            name: Some("bad".into()),
-            run: "/nonexistent_binary_xyz_abc".to_string(),
-            on_success: PhaseOutcome::Stop,
-            on_failure: PhaseOutcome::Stop, // <-- Stop, not Continue
+            name: Some("optional".into()),
+            run: "false".to_string(),
             feedback: PhaseFeedback::OnFailure,
             follow_up: None,
+            required: false,
         }];
         repl.run_phase_loop(&phases, 10, None, |_| false)
             .await
@@ -2898,23 +2875,22 @@ phases:
         assert_eq!(
             calls.len(),
             0,
-            "exec error with on_failure=Stop must not trigger LLM call"
+            "required:false phase failure must not trigger LLM call"
         );
     }
 
     #[tokio::test]
-    async fn test_exec_error_on_failure_continue_does_loop() {
-        // Exec error with on_failure=Continue SHOULD loop.
+    async fn test_required_phase_failure_does_loop() {
+        // A phase with required: true (default) that fails SHOULD trigger an LLM call.
         let (backend, sent) = MockLlmBackend::new("ok");
         let mut repl = make_repl(backend);
 
         let phases = vec![TemplatePhase {
-            name: Some("bad".into()),
-            run: "/nonexistent_binary_xyz_abc".to_string(),
-            on_success: PhaseOutcome::Stop,
-            on_failure: PhaseOutcome::Continue,
+            name: Some("required".into()),
+            run: "false".to_string(),
             feedback: PhaseFeedback::OnFailure,
             follow_up: None,
+            required: true,
         }];
         // confirm=true + max_iterations=1 → message fires on pass 1, loop exits on pass 2.
         repl.run_phase_loop(&phases, 1, None, |_| true)
@@ -2925,7 +2901,7 @@ phases:
         assert_eq!(
             calls.len(),
             1,
-            "exec error with on_failure=Continue must trigger LLM call"
+            "required:true phase failure must trigger LLM call"
         );
     }
 
@@ -2940,11 +2916,7 @@ phases:
 
         // This phase would fail for the wrong reason if {{file}} expanded to "".
         // With the fix it should simply be skipped (no continue triggered).
-        let phases = vec![phase(
-            "gcc -Wall {{file}}",
-            PhaseOutcome::Stop,
-            PhaseOutcome::Continue,
-        )];
+        let phases = vec![phase("gcc -Wall {{file}}")];
         repl.run_phase_loop(&phases, 10, None, |_| false)
             .await
             .unwrap();
@@ -2961,19 +2933,21 @@ phases:
 
     #[tokio::test]
     async fn test_feedback_always_injects_on_success() {
-        // feedback: Always must include phase output in LLM message even when
-        // the command succeeds (exit 0).  on_success=Continue so the loop runs.
+        // feedback:Always on a passing phase must include its output in the LLM
+        // message when a subsequent required phase fails (triggering a pass).
         let (backend, sent) = MockLlmBackend::new("done");
         let mut repl = make_repl(backend);
 
-        let phases = vec![TemplatePhase {
-            name: Some("report".into()),
-            run: "sh -c 'echo always_output; exit 0'".to_string(),
-            on_success: PhaseOutcome::Continue,
-            on_failure: PhaseOutcome::Continue,
-            feedback: PhaseFeedback::Always,
-            follow_up: None,
-        }];
+        let phases = vec![
+            TemplatePhase {
+                name: Some("report".into()),
+                run: "sh -c 'echo always_output; exit 0'".to_string(),
+                feedback: PhaseFeedback::Always,
+                follow_up: None,
+                required: true,
+            },
+            phase("false"), // required failure triggers the LLM pass
+        ];
         repl.run_phase_loop(&phases, 1, None, |_| true)
             .await
             .unwrap();
@@ -2982,24 +2956,27 @@ phases:
         assert_eq!(calls.len(), 1);
         assert!(
             calls[0].contains("always_output"),
-            "feedback:Always must inject output even on success"
+            "feedback:Always must inject output even when phase passed"
         );
     }
 
     #[tokio::test]
     async fn test_feedback_on_failure_does_not_inject_on_success() {
-        // feedback: OnFailure (default) must NOT include output when exit 0.
+        // feedback:OnFailure on a passing phase must NOT inject its output,
+        // even when a subsequent phase fails and triggers a pass.
         let (backend, sent) = MockLlmBackend::new("done");
         let mut repl = make_repl(backend);
 
-        let phases = vec![TemplatePhase {
-            name: Some("check".into()),
-            run: "sh -c 'echo clean_output; exit 0'".to_string(),
-            on_success: PhaseOutcome::Continue,
-            on_failure: PhaseOutcome::Continue,
-            feedback: PhaseFeedback::OnFailure,
-            follow_up: None,
-        }];
+        let phases = vec![
+            TemplatePhase {
+                name: Some("check".into()),
+                run: "sh -c 'echo clean_output; exit 0'".to_string(),
+                feedback: PhaseFeedback::OnFailure,
+                follow_up: None,
+                required: true,
+            },
+            phase("false"), // required failure triggers the LLM pass
+        ];
         repl.run_phase_loop(&phases, 1, None, |_| true)
             .await
             .unwrap();
@@ -3008,7 +2985,7 @@ phases:
         assert_eq!(calls.len(), 1);
         assert!(
             !calls[0].contains("clean_output"),
-            "feedback:OnFailure must not inject output on success"
+            "feedback:OnFailure must not inject output when phase passed"
         );
     }
 
@@ -3021,10 +2998,9 @@ phases:
         let phases = vec![TemplatePhase {
             name: Some("noisy".into()),
             run: "sh -c 'echo never_output; exit 1'".to_string(),
-            on_success: PhaseOutcome::Stop,
-            on_failure: PhaseOutcome::Continue,
             feedback: PhaseFeedback::Never,
             follow_up: None,
+            required: true,
         }];
         repl.run_phase_loop(&phases, 1, None, |_| true)
             .await
@@ -3049,10 +3025,9 @@ phases:
         let phases = vec![TemplatePhase {
             name: Some("check".into()),
             run: "false".to_string(),
-            on_success: PhaseOutcome::Stop,
-            on_failure: PhaseOutcome::Continue,
             feedback: PhaseFeedback::OnFailure,
             follow_up: Some("PER_PHASE_FOLLOW_UP".into()),
+            required: true,
         }];
         repl.run_phase_loop(&phases, 1, Some("TEMPLATE_FOLLOW_UP"), |_| true)
             .await
@@ -3076,7 +3051,7 @@ phases:
         let (backend, sent) = MockLlmBackend::new("done");
         let mut repl = make_repl(backend);
 
-        let phases = vec![phase("false", PhaseOutcome::Stop, PhaseOutcome::Continue)];
+        let phases = vec![phase("false")];
         repl.run_phase_loop(&phases, 1, Some("TEMPLATE_FOLLOW_UP"), |_| true)
             .await
             .unwrap();
@@ -3099,7 +3074,7 @@ phases:
         let (backend, sent) = MockLlmBackend::new("done");
         let mut repl = make_repl(backend);
 
-        let phases = vec![phase("false", PhaseOutcome::Stop, PhaseOutcome::Continue)];
+        let phases = vec![phase("false")];
         repl.run_phase_loop(&phases, 1, None, |_| true)
             .await
             .unwrap();
@@ -3120,7 +3095,7 @@ phases:
         let (backend, sent) = MockLlmBackend::new("done");
         let mut repl = make_repl(backend);
 
-        let phases = vec![phase("false", PhaseOutcome::Stop, PhaseOutcome::Continue)];
+        let phases = vec![phase("false")];
         // Always say yes — the max_iterations cap must stop it at 3.
         repl.run_phase_loop(&phases, 3, None, |_| true)
             .await
