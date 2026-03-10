@@ -11,6 +11,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.1] - 2026-03-10
+
+### Fixed
+
+- **Seeded templates still contained `on_success`/`on_failure`** — `slab init` hardcodes template strings in `main.rs` and overwrites the on-disk `.yaml` files. The 1.3.0 release updated the `.yaml` files but not the source strings, so any fresh `slab init` would seed templates with the removed fields. All three affected templates (`c-improve`, `c-quality`, `c-rationale`) are now correct in `main.rs`.
+
+---
+
 ## [1.3.0] - 2026-03-10
 
 ### Changed

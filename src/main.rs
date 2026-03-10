@@ -859,14 +859,10 @@ phases:
   - name: "gcc check"
     run: "gcc -Wall -Wextra -Werror -Iinclude -fsyntax-only {{file}}"
     feedback: on_failure
-    on_success: stop
-    on_failure: continue
     follow_up: "Fix all errors and warnings shown above. Output the complete corrected file."
   - name: "complexity"
     run: "python3 -m lizard --CCN 10 {{file}}"
     feedback: always
-    on_success: stop
-    on_failure: continue
     follow_up: "Refactor the flagged functions to reduce cyclomatic complexity below 10. Output the complete corrected file."
 "#;
     std::fs::write(".slab/templates/c-improve.yaml", c_improve_template)?;
@@ -963,8 +959,8 @@ prompt: |
 # phases:
 #   - name: "static analysis"
 #     run: "cppcheck --enable=all --error-exitcode=1 {{file}}"
-#     on_success: stop
-#     on_failure: continue
+#     feedback: on_failure
+#     follow_up: "Fix all static analysis errors shown above. Output the complete corrected file."
 "#;
     std::fs::write(".slab/templates/c-rationale.yaml", c_rationale_template)?;
 
@@ -996,8 +992,6 @@ phases:
   - name: "compile"
     run: "gcc -Wall -Wextra -Wno-unused-result -fsyntax-only {{file}}"
     feedback: on_failure
-    on_success: stop
-    on_failure: continue
     follow_up: "Fix all compilation errors and warnings shown above. Output the complete corrected file."
 
   # Phase 2: complexity — swap in your preferred tool; must exit non-zero on violations
@@ -1007,8 +1001,6 @@ phases:
   - name: "complexity"
     run: "lizard --CCN 10 {{file}}"
     feedback: always        # LLM always sees the report, even when clean
-    on_success: stop
-    on_failure: continue
     follow_up: "The complexity report is above. Refactor flagged functions to reduce complexity. Output the complete corrected file."
 "#;
     std::fs::write(".slab/templates/c-quality.yaml", c_quality_template)?;
