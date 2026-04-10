@@ -1219,23 +1219,14 @@ fn print_error(error: &SlabError) {
                 style("ollama serve").cyan(),
                 style("python -m vllm.entrypoints.openai.api_server ...").cyan()
             ),
-            format!(
-                "Verify config: {}",
-                style("slab config").cyan()
-            ),
+            format!("Verify config: {}", style("slab config").cyan()),
         ]),
         SlabError::NoModelsAvailable => Some(vec![
             format!("List models: {}", style("slab models").cyan()),
-            format!(
-                "Ollama: {}",
-                style("ollama pull qwen2.5:7b").cyan()
-            ),
+            format!("Ollama: {}", style("ollama pull qwen2.5:7b").cyan()),
         ]),
         SlabError::ModelNotFound(model) => Some(vec![
-            format!(
-                "Ollama: {}",
-                style(format!("ollama pull {}", model)).cyan()
-            ),
+            format!("Ollama: {}", style(format!("ollama pull {}", model)).cyan()),
             format!("List available: {}", style("slab models").cyan()),
         ]),
         _ => None,

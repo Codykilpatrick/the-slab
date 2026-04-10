@@ -133,9 +133,7 @@ impl OpenAiClient {
         match req.send().await {
             Ok(resp) if resp.status().is_success() => Ok(()),
             Ok(_) => Err(SlabError::BackendNotReachable(self.base_url.clone())),
-            Err(e) if e.is_connect() => {
-                Err(SlabError::BackendNotReachable(self.base_url.clone()))
-            }
+            Err(e) if e.is_connect() => Err(SlabError::BackendNotReachable(self.base_url.clone())),
             Err(e) => Err(SlabError::ConnectionError(e)),
         }
     }
@@ -420,8 +418,7 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/v1/chat/completions"))
             .respond_with(
-                ResponseTemplate::new(404)
-                    .set_body_string(r#"{"error":"model not found"}"#),
+                ResponseTemplate::new(404).set_body_string(r#"{"error":"model not found"}"#),
             )
             .mount(&server)
             .await;

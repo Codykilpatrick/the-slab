@@ -150,9 +150,7 @@ impl OllamaClient {
         match self.client.get(&url).send().await {
             Ok(resp) if resp.status().is_success() => Ok(()),
             Ok(_) => Err(SlabError::BackendNotReachable(self.base_url.clone())),
-            Err(e) if e.is_connect() => {
-                Err(SlabError::BackendNotReachable(self.base_url.clone()))
-            }
+            Err(e) if e.is_connect() => Err(SlabError::BackendNotReachable(self.base_url.clone())),
             Err(e) => Err(SlabError::ConnectionError(e)),
         }
     }
