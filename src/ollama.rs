@@ -41,7 +41,7 @@ impl LlmBackend for OllamaClient {
 #[derive(Debug, Clone)]
 pub struct OllamaClient {
     client: Client,
-    base_url: String,
+    pub(crate) base_url: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -113,8 +113,12 @@ pub struct TagsResponse {
 #[allow(dead_code)]
 pub struct ModelInfo {
     pub name: String,
-    pub modified_at: String,
-    pub size: u64,
+    /// Not present on OpenAI-compatible backends.
+    #[serde(default)]
+    pub modified_at: Option<String>,
+    /// Not present on OpenAI-compatible backends.
+    #[serde(default)]
+    pub size: Option<u64>,
     #[serde(default)]
     pub details: Option<ModelDetails>,
 }
@@ -145,8 +149,10 @@ impl OllamaClient {
         let url = format!("{}/api/tags", self.base_url);
         match self.client.get(&url).send().await {
             Ok(resp) if resp.status().is_success() => Ok(()),
-            Ok(_) => Err(SlabError::OllamaNotRunning(self.base_url.clone())),
-            Err(e) if e.is_connect() => Err(SlabError::OllamaNotRunning(self.base_url.clone())),
+            Ok(_) => Err(SlabError::BackendNotReachable(self.base_url.clone())),
+            Err(e) if e.is_connect() => {
+                Err(SlabError::BackendNotReachable(self.base_url.clone()))
+            }
             Err(e) => Err(SlabError::ConnectionError(e)),
         }
     }
@@ -157,7 +163,7 @@ impl OllamaClient {
         let resp = self.client.get(&url).send().await?;
 
         if !resp.status().is_success() {
-            return Err(SlabError::OllamaNotRunning(self.base_url.clone()));
+            return Err(SlabError::BackendNotReachable(self.base_url.clone()));
         }
 
         let tags: TagsResponse = resp.json().await?;
@@ -295,6 +301,116 @@ impl Message {
         Self {
             role: "assistant".to_string(),
             content: content.into(),
+        }
+    }
+}
+
+// ── Backend-agnostic dispatch ─────────────────────────────────────────────────
+
+/// Enum dispatch over all concrete backends. `LlmBackend` uses RPITIT and is
+/// therefore not object-safe, so we use an enum instead of `Box<dyn LlmBackend>`.
+#[derive(Debug, Clone)]
+pub enum AnyBackend {
+    Ollama(OllamaClient),
+    OpenAi(crate::openai::OpenAiClient),
+}
+
+impl AnyBackend {
+    /// Construct the right backend from config.
+    pub fn from_config(config: &crate::config::Config) -> Self {
+        match config.backend {
+            crate::config::BackendType::Ollama => {
+                AnyBackend::Ollama(OllamaClient::new(&config.ollama_host))
+            }
+            crate::config::BackendType::OpenAi => AnyBackend::OpenAi(
+                crate::openai::OpenAiClient::new(&config.ollama_host, config.api_key.clone()),
+            ),
+        }
+    }
+
+    /// Check that the backend is reachable before the first request.
+    pub async fn health_check(&self) -> Result<()> {
+        match self {
+            AnyBackend::Ollama(c) => c.health_check().await,
+            AnyBackend::OpenAi(c) => c.health_check().await,
+        }
+    }
+
+    /// Return the base URL of the configured backend (for error messages).
+    pub fn host(&self) -> &str {
+        match self {
+            AnyBackend::Ollama(c) => &c.base_url,
+            AnyBackend::OpenAi(c) => &c.base_url,
+        }
+    }
+}
+
+// ── Unit tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{BackendType, Config};
+
+    #[test]
+    fn from_config_builds_ollama_backend() {
+        let config = Config {
+            backend: BackendType::Ollama,
+            ollama_host: "http://localhost:11434".to_string(),
+            api_key: None,
+            ..Config::default()
+        };
+        let backend = AnyBackend::from_config(&config);
+        assert!(matches!(backend, AnyBackend::Ollama(_)));
+        assert_eq!(backend.host(), "http://localhost:11434");
+    }
+
+    #[test]
+    fn from_config_builds_openai_backend() {
+        let config = Config {
+            backend: BackendType::OpenAi,
+            ollama_host: "http://localhost:8000".to_string(),
+            api_key: Some("sk-test".to_string()),
+            ..Config::default()
+        };
+        let backend = AnyBackend::from_config(&config);
+        assert!(matches!(backend, AnyBackend::OpenAi(_)));
+        assert_eq!(backend.host(), "http://localhost:8000");
+    }
+
+    #[test]
+    fn host_strips_trailing_slash() {
+        let config = Config {
+            backend: BackendType::Ollama,
+            ollama_host: "http://localhost:11434/".to_string(),
+            api_key: None,
+            ..Config::default()
+        };
+        let backend = AnyBackend::from_config(&config);
+        // OllamaClient trims the slash, so host() should not end with '/'.
+        assert!(!backend.host().ends_with('/'));
+    }
+}
+
+impl LlmBackend for AnyBackend {
+    async fn llm_chat(&self, request: ChatRequest) -> Result<String> {
+        match self {
+            AnyBackend::Ollama(c) => c.llm_chat(request).await,
+            AnyBackend::OpenAi(c) => c.chat(request).await,
+        }
+    }
+
+    async fn llm_stream(&self, request: ChatRequest) -> Result<mpsc::Receiver<Result<String>>> {
+        match self {
+            AnyBackend::Ollama(c) => c.llm_stream(request).await,
+            AnyBackend::OpenAi(c) => c.chat_stream(request).await,
+        }
+    }
+
+    async fn llm_list_models(&self) -> Result<Vec<ModelInfo>> {
+        match self {
+            AnyBackend::Ollama(c) => c.llm_list_models().await,
+            AnyBackend::OpenAi(c) => c.list_models().await,
         }
     }
 }

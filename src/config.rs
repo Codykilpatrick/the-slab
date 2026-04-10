@@ -4,10 +4,32 @@ use std::path::PathBuf;
 
 use crate::error::{Result, SlabError};
 
+/// Which LLM inference backend to use.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum BackendType {
+    #[default]
+    Ollama,
+    /// Any OpenAI-compatible server (vllm, llama.cpp --server, etc.)
+    #[serde(alias = "openai-compat", alias = "openai_compat")]
+    OpenAi,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    #[serde(default = "default_ollama_host")]
+    /// Base URL for the LLM server. Accepts "host" as an alias so new configs
+    /// can use the backend-neutral name while old configs with "ollama_host" keep working.
+    #[serde(default = "default_ollama_host", alias = "host")]
     pub ollama_host: String,
+
+    /// Which backend protocol to speak. Defaults to "ollama".
+    #[serde(default)]
+    pub backend: BackendType,
+
+    /// Optional API key sent as `Authorization: Bearer <key>`.
+    /// Required by some vllm deployments; leave unset for unauthenticated servers.
+    #[serde(default)]
+    pub api_key: Option<String>,
 
     #[serde(default)]
     pub default_model: Option<String>,
@@ -206,6 +228,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             ollama_host: default_ollama_host(),
+            backend: BackendType::default(),
+            api_key: None,
             default_model: None,
             context_limit: default_context_limit(),
             system_prompt: default_system_prompt(),
@@ -292,6 +316,65 @@ impl Config {
             toml::to_string_pretty(self).map_err(|e| SlabError::ConfigError(e.to_string()))?;
         std::fs::write(&path, content)?;
         Ok(())
+    }
+}
+
+// ── Unit tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backend_type_default_is_ollama() {
+        assert_eq!(BackendType::default(), BackendType::Ollama);
+    }
+
+    #[test]
+    fn backend_type_deserializes_ollama() {
+        let cfg: Config = toml::from_str("backend = \"ollama\"").unwrap();
+        assert_eq!(cfg.backend, BackendType::Ollama);
+    }
+
+    #[test]
+    fn backend_type_deserializes_openai() {
+        let cfg: Config = toml::from_str("backend = \"openai\"").unwrap();
+        assert_eq!(cfg.backend, BackendType::OpenAi);
+    }
+
+    #[test]
+    fn backend_type_deserializes_openai_compat_alias() {
+        let cfg: Config = toml::from_str("backend = \"openai-compat\"").unwrap();
+        assert_eq!(cfg.backend, BackendType::OpenAi);
+
+        let cfg2: Config = toml::from_str("backend = \"openai_compat\"").unwrap();
+        assert_eq!(cfg2.backend, BackendType::OpenAi);
+    }
+
+    #[test]
+    fn api_key_is_optional() {
+        let cfg: Config = toml::from_str("").unwrap();
+        assert!(cfg.api_key.is_none());
+    }
+
+    #[test]
+    fn api_key_is_loaded() {
+        let cfg: Config = toml::from_str("api_key = \"sk-test\"").unwrap();
+        assert_eq!(cfg.api_key.as_deref(), Some("sk-test"));
+    }
+
+    #[test]
+    fn host_alias_accepted() {
+        // New configs may use "host" instead of "ollama_host".
+        let cfg: Config = toml::from_str("host = \"http://my-server:8080\"").unwrap();
+        assert_eq!(cfg.ollama_host, "http://my-server:8080");
+    }
+
+    #[test]
+    fn missing_backend_defaults_to_ollama() {
+        // A config with no backend key must still work.
+        let cfg: Config = toml::from_str("ollama_host = \"http://localhost:11434\"").unwrap();
+        assert_eq!(cfg.backend, BackendType::Ollama);
     }
 }
 

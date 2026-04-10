@@ -6,6 +6,7 @@ mod error;
 mod file_ops;
 mod highlight;
 mod ollama;
+mod openai;
 mod repl;
 mod rules;
 mod session;
@@ -21,7 +22,7 @@ use std::process;
 use cli::{Cli, Commands};
 use config::Config;
 use error::{Result, SlabError};
-use ollama::OllamaClient;
+use ollama::{AnyBackend, LlmBackend};
 use repl::Repl;
 use theme::{BoxStyle, ThemeName};
 use ui::BoxRenderer;
@@ -40,8 +41,8 @@ async fn run() -> Result<()> {
     // Load config
     let config = Config::load(cli.config.as_ref())?;
 
-    // Create Ollama client
-    let client = OllamaClient::new(&config.ollama_host);
+    // Create backend client
+    let client = AnyBackend::from_config(&config);
 
     // Determine streaming mode
     let streaming = !cli.no_stream && config.ui.streaming;
@@ -183,7 +184,7 @@ fn generate_completions(shell: cli::Shell) {
     generate(shell, &mut cmd, name, &mut std::io::stdout());
 }
 
-async fn get_model(cli: &Cli, config: &Config, client: &OllamaClient) -> Result<String> {
+async fn get_model(cli: &Cli, config: &Config, client: &AnyBackend) -> Result<String> {
     // CLI override
     if let Some(model) = &cli.model {
         return Ok(model.clone());
@@ -195,7 +196,7 @@ async fn get_model(cli: &Cli, config: &Config, client: &OllamaClient) -> Result<
     }
 
     // First available model
-    let models = client.list_models().await?;
+    let models = client.llm_list_models().await?;
     if let Some(first) = models.first() {
         Ok(first.name.clone())
     } else {
@@ -206,7 +207,12 @@ async fn get_model(cli: &Cli, config: &Config, client: &OllamaClient) -> Result<
 fn show_config(config: &Config) -> Result<()> {
     println!("{}", style("Current Configuration:").cyan().bold());
     println!();
-    println!("  {} {}", style("Ollama host:").dim(), config.ollama_host);
+    let backend_name = match config.backend {
+        config::BackendType::Ollama => "ollama",
+        config::BackendType::OpenAi => "openai",
+    };
+    println!("  {} {}", style("Backend:").dim(), backend_name);
+    println!("  {} {}", style("Host:").dim(), config.ollama_host);
     println!(
         "  {} {}",
         style("Default model:").dim(),
@@ -302,7 +308,26 @@ fn set_config_value(key_value: &str) -> Result<()> {
     let value = parts[1];
 
     match key {
-        "ollama_host" => config.ollama_host = value.to_string(),
+        "ollama_host" | "host" => config.ollama_host = value.to_string(),
+        "backend" => {
+            config.backend = match value {
+                "ollama" => config::BackendType::Ollama,
+                "openai" | "openai-compat" | "openai_compat" => config::BackendType::OpenAi,
+                other => {
+                    return Err(SlabError::ConfigError(format!(
+                        "Unknown backend '{}'. Valid values: ollama, openai",
+                        other
+                    )))
+                }
+            };
+        }
+        "api_key" => {
+            config.api_key = if value.is_empty() {
+                None
+            } else {
+                Some(value.to_string())
+            };
+        }
         "default_model" => config.default_model = Some(value.to_string()),
         "context_limit" => {
             config.context_limit = value
@@ -369,15 +394,12 @@ fn set_config_value(key_value: &str) -> Result<()> {
     Ok(())
 }
 
-async fn list_models(client: &OllamaClient, names_only: bool) -> Result<()> {
-    let models = client.list_models().await?;
+async fn list_models(client: &AnyBackend, names_only: bool) -> Result<()> {
+    let models = client.llm_list_models().await?;
 
     if models.is_empty() {
         if !names_only {
-            println!(
-                "{}",
-                style("No models available. Pull a model with: ollama pull <model>").yellow()
-            );
+            println!("{}", style("No models available.").yellow());
         }
         return Ok(());
     }
@@ -394,13 +416,6 @@ async fn list_models(client: &OllamaClient, names_only: bool) -> Result<()> {
     println!();
 
     for model in &models {
-        let size_mb = model.size / 1_000_000;
-        let size_str = if size_mb > 1000 {
-            format!("{:.1} GB", size_mb as f64 / 1000.0)
-        } else {
-            format!("{} MB", size_mb)
-        };
-
         print!("  {}", style(&model.name).green());
 
         if let Some(details) = &model.details {
@@ -409,7 +424,17 @@ async fn list_models(client: &OllamaClient, names_only: bool) -> Result<()> {
             }
         }
 
-        println!(" {}", style(size_str).dim());
+        if let Some(size) = model.size {
+            let size_mb = size / 1_000_000;
+            let size_str = if size_mb > 1000 {
+                format!("{:.1} GB", size_mb as f64 / 1000.0)
+            } else {
+                format!("{} MB", size_mb)
+            };
+            print!(" {}", style(size_str).dim());
+        }
+
+        println!();
     }
 
     println!();
@@ -475,48 +500,46 @@ fn list_sessions(names_only: bool) -> Result<()> {
     Ok(())
 }
 
-async fn init_project(client: &OllamaClient) -> Result<()> {
+async fn init_project(client: &AnyBackend) -> Result<()> {
     println!("{}", style("Initializing The Slab...").cyan().bold());
     println!();
 
-    // Check if Ollama is running and detect models
+    // Check if the backend is reachable and detect available models
     let detected_model = match client.health_check().await {
         Ok(()) => {
-            println!("{} Ollama is running", style("✓").green());
-            match client.list_models().await {
+            println!("{} Backend is reachable", style("✓").green());
+            match client.llm_list_models().await {
                 Ok(models) if !models.is_empty() => {
                     println!("{} Found {} model(s):", style("✓").green(), models.len());
                     for model in &models {
-                        let size_mb = model.size / 1_000_000;
-                        let size_str = if size_mb > 1000 {
-                            format!("{:.1} GB", size_mb as f64 / 1000.0)
-                        } else {
-                            format!("{} MB", size_mb)
-                        };
-                        println!(
-                            "    {} {}",
-                            style(&model.name).yellow(),
-                            style(size_str).dim()
-                        );
+                        let size_str = model.size.map(|s| {
+                            let mb = s / 1_000_000;
+                            if mb > 1000 {
+                                format!("{:.1} GB", mb as f64 / 1000.0)
+                            } else {
+                                format!("{} MB", mb)
+                            }
+                        });
+                        print!("    {}", style(&model.name).yellow());
+                        if let Some(s) = size_str {
+                            print!(" {}", style(s).dim());
+                        }
+                        println!();
                     }
                     // Use the first model as default
                     Some(models[0].name.clone())
                 }
                 _ => {
-                    println!(
-                        "{} No models found. Pull one with: {}",
-                        style("⚠").yellow(),
-                        style("ollama pull qwen2.5:7b").cyan()
-                    );
+                    println!("{} No models found", style("⚠").yellow());
                     None
                 }
             }
         }
         Err(_) => {
             println!(
-                "{} Ollama not running. Start with: {}",
+                "{} Backend not reachable at {}",
                 style("⚠").yellow(),
-                style("ollama serve").cyan()
+                client.host()
             );
             None
         }
@@ -1105,7 +1128,7 @@ tags:
 }
 
 async fn run_tests(
-    client: &OllamaClient,
+    client: &AnyBackend,
     config: &Config,
     cli: &Cli,
     filter: Option<&str>,
@@ -1122,7 +1145,7 @@ async fn run_tests(
     } else if let Some(m) = &config.default_model {
         m.clone()
     } else {
-        let models = client.list_models().await?;
+        let models = client.llm_list_models().await?;
         models
             .first()
             .map(|m| m.name.clone())
@@ -1161,6 +1184,7 @@ async fn run_tests(
 
     // Run tests
     let runner = TestRunner::new(client.clone(), config.clone(), model, cli.verbose);
+
     let results = runner.run_tests(&all_tests, filter, model_override).await;
 
     // Print results
@@ -1185,20 +1209,31 @@ fn print_error(error: &SlabError) {
 
     // Add helpful suggestions based on error type
     let suggestions = match error {
-        SlabError::OllamaNotRunning(_) => Some(vec![
-            format!("Start Ollama: {}", style("ollama serve").cyan()),
+        SlabError::BackendNotReachable(host) => Some(vec![
             format!(
-                "Check status: {}",
-                style("curl http://localhost:11434/api/tags").cyan()
+                "Check the server is running and reachable at {}",
+                style(host).cyan()
+            ),
+            format!(
+                "Ollama: {}  |  vllm: {}",
+                style("ollama serve").cyan(),
+                style("python -m vllm.entrypoints.openai.api_server ...").cyan()
+            ),
+            format!(
+                "Verify config: {}",
+                style("slab config").cyan()
             ),
         ]),
-        SlabError::NoModelsAvailable => Some(vec![format!(
-            "Pull a model: {}",
-            style("ollama pull qwen2.5:7b").cyan()
-        )]),
+        SlabError::NoModelsAvailable => Some(vec![
+            format!("List models: {}", style("slab models").cyan()),
+            format!(
+                "Ollama: {}",
+                style("ollama pull qwen2.5:7b").cyan()
+            ),
+        ]),
         SlabError::ModelNotFound(model) => Some(vec![
             format!(
-                "Pull the model: {}",
+                "Ollama: {}",
                 style(format!("ollama pull {}", model)).cyan()
             ),
             format!("List available: {}", style("slab models").cyan()),

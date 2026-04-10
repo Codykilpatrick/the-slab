@@ -2491,8 +2491,8 @@ fn get_template_directories(project_root: &std::path::Path) -> Vec<PathBuf> {
 }
 
 /// Run a single prompt (non-interactive)
-pub async fn run_single_prompt(
-    client: &OllamaClient,
+pub async fn run_single_prompt<B: LlmBackend>(
+    client: &B,
     config: &Config,
     model: &str,
     prompt: &str,
@@ -2608,7 +2608,7 @@ pub async fn run_single_prompt(
     };
 
     let response = if streaming {
-        let mut rx = client.chat_stream(request).await?;
+        let mut rx = client.llm_stream(request).await?;
         let mut full_response = String::new();
         while let Some(result) = rx.recv().await {
             match result {
@@ -2636,7 +2636,7 @@ pub async fn run_single_prompt(
         spinner.set_message("Thinking...");
         spinner.enable_steady_tick(Duration::from_millis(80));
 
-        let response = client.chat(request).await?;
+        let response = client.llm_chat(request).await?;
         spinner.finish_and_clear();
 
         println!("{}", response);

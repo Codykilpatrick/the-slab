@@ -2,16 +2,16 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum SlabError {
-    #[error("Ollama is not running at {0}. Start it with: ollama serve")]
-    OllamaNotRunning(String),
+    #[error("LLM backend not reachable at {0}")]
+    BackendNotReachable(String),
 
-    #[error("Failed to connect to Ollama: {0}")]
+    #[error("Failed to connect to LLM backend: {0}")]
     ConnectionError(#[from] reqwest::Error),
 
     #[error("Model '{0}' not found. Run 'slab models' to see available models.")]
     ModelNotFound(String),
 
-    #[error("No models available. Pull a model with: ollama pull <model>")]
+    #[error("No models available")]
     NoModelsAvailable,
 
     #[error("Configuration error: {0}")]

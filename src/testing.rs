@@ -7,7 +7,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crate::config::Config;
-use crate::ollama::{ChatRequest, Message, ModelOptions, OllamaClient};
+use crate::ollama::{ChatRequest, LlmBackend, Message, ModelOptions};
 
 /// A test case for validating LLM responses
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -217,16 +217,16 @@ fn load_test_file(path: &Path) -> Result<Vec<TestCase>, String> {
     Err("Failed to parse as test case or test list".to_string())
 }
 
-/// Test runner that executes tests against Ollama
-pub struct TestRunner {
-    client: OllamaClient,
+/// Test runner that executes tests against any LLM backend.
+pub struct TestRunner<B: LlmBackend> {
+    client: B,
     config: Config,
     default_model: String,
     verbose: bool,
 }
 
-impl TestRunner {
-    pub fn new(client: OllamaClient, config: Config, default_model: String, verbose: bool) -> Self {
+impl<B: LlmBackend> TestRunner<B> {
+    pub fn new(client: B, config: Config, default_model: String, verbose: bool) -> Self {
         Self {
             client,
             config,
@@ -235,7 +235,7 @@ impl TestRunner {
         }
     }
 
-    /// Run all tests and return results
+    /// Run all tests and return results.
     pub async fn run_tests(
         &self,
         tests: &[TestCase],
@@ -320,7 +320,7 @@ impl TestRunner {
 
         // Run with timeout
         let timeout = Duration::from_secs(test.timeout_secs);
-        let response_result = tokio::time::timeout(timeout, self.client.chat(request)).await;
+        let response_result = tokio::time::timeout(timeout, self.client.llm_chat(request)).await;
 
         let latency_ms = start.elapsed().as_millis() as u64;
 
@@ -367,7 +367,7 @@ impl TestRunner {
         }
     }
 
-    /// Print test results in a table format
+    /// Print test results in a table format.
     pub fn print_results(&self, results: &[TestResult]) {
         if results.is_empty() {
             return;
