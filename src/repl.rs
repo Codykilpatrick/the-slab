@@ -1933,7 +1933,7 @@ impl<B: LlmBackend> Repl<B> {
 
         let model_config = self.config.get_model_config(&self.model);
 
-        let request = ChatRequest {
+        let mut request = ChatRequest {
             model: self.model.clone(),
             messages,
             stream: Some(self.streaming),
@@ -1944,26 +1944,42 @@ impl<B: LlmBackend> Repl<B> {
             }),
         };
 
-        let response = if self.streaming {
-            self.stream_response(request).await?
-        } else {
-            self.wait_response(request).await?
-        };
+        loop {
+            let response = if self.streaming {
+                self.stream_response(request).await?
+            } else {
+                self.wait_response(request).await?
+            };
 
-        // Add assistant message to context
-        if !response.is_empty() {
+            if response.is_empty() {
+                break;
+            }
+
             self.context
                 .add_message(Message::assistant(response.clone()));
-        }
 
-        // Process file operations if enabled
-        if self.file_ops_enabled && !response.is_empty() {
-            self.process_file_operations(&response)?;
-        }
+            if self.file_ops_enabled {
+                self.process_file_operations(&response)?;
+            }
 
-        // Process exec blocks (run commands, add output to context)
-        if !response.is_empty() {
-            self.process_exec_operations(&response)?;
+            // If the LLM ran exec blocks and the user approved, feed the output
+            // back so the LLM can continue rather than dropping back to the prompt.
+            if !self.process_exec_operations(&response)? {
+                break;
+            }
+
+            let messages = self.context.build_messages();
+            let model_config = self.config.get_model_config(&self.model);
+            request = ChatRequest {
+                model: self.model.clone(),
+                messages,
+                stream: Some(self.streaming),
+                options: Some(ModelOptions {
+                    temperature: Some(model_config.temperature),
+                    top_p: Some(model_config.top_p),
+                    num_ctx: Some(self.config.context_limit),
+                }),
+            };
         }
 
         Ok(())
@@ -2334,10 +2350,10 @@ impl<B: LlmBackend> Repl<B> {
         Ok(())
     }
 
-    fn process_exec_operations(&mut self, response: &str) -> Result<()> {
+    fn process_exec_operations(&mut self, response: &str) -> Result<bool> {
         let commands = parse_exec_operations(response);
         if commands.is_empty() {
-            return Ok(());
+            return Ok(false);
         }
 
         println!();
@@ -2376,7 +2392,7 @@ impl<B: LlmBackend> Repl<B> {
             "s" | "skip" | "n" | "no" => {
                 println!("{}", style("No commands run.").dim());
                 println!();
-                return Ok(());
+                return Ok(false);
             }
             _ => {
                 let mut indices = Vec::new();
@@ -2394,7 +2410,7 @@ impl<B: LlmBackend> Repl<B> {
         if to_run.is_empty() {
             println!("{}", style("No commands run.").dim());
             println!();
-            return Ok(());
+            return Ok(false);
         }
 
         for &idx in &to_run {
@@ -2451,7 +2467,7 @@ impl<B: LlmBackend> Repl<B> {
             }
         }
         println!();
-        Ok(())
+        Ok(true)
     }
 }
 

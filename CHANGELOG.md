@@ -11,6 +11,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.1] - 2026-04-29
+
+### Fixed
+
+- **Exec block continuation** — after the LLM emits an exec block and the user approves the command, the output is now automatically fed back to the LLM so it can continue its response. Previously the output was added to context but the LLM was never re-queried, dropping control back to the user prompt.
+
+---
+
 ## [1.2.0] - 2026-02-22
 
 ### Added
